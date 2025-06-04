@@ -26,6 +26,11 @@ Claude CodeをローカルサーバーでSlackとDiscordの両方に対応させ
 - **ステータス確認** - 現在のリポジトリ状態を確認
 - **紐付け解除** - チャンネルとリポジトリの紐付けを削除
 
+### チャンネルメッセージ処理
+- **Slack**: チャンネルに投稿されたすべてのメッセージをClaudeが処理（スレッドで返信）
+- **Discord**: チャンネルに投稿されたすべてのメッセージをClaudeが処理（返信形式）
+- スラッシュコマンドを使わずに直接質問可能
+
 ## セットアップ
 
 ### 1. 必要なもの
@@ -55,12 +60,16 @@ Claude CodeをローカルサーバーでSlackとDiscordの両方に対応させ
 - `im:history`
 - `im:read`
 - `im:write`
+- `channels:history` - チャンネルメッセージを読むため
+- `groups:history` - プライベートチャンネルメッセージを読むため
 
 #### Event Subscriptions
 - Enable Events → On
 - Subscribe to bot events:
   - `app_mention`
   - `message.im`
+  - `message.channels` - パブリックチャンネルのメッセージ
+  - `message.groups` - プライベートチャンネルのメッセージ
 
 #### Slash Commands
 以下のコマンドを作成:
@@ -169,6 +178,8 @@ PORT=3000
 3. Bot Permissions:
    - Send Messages
    - Read Message History
+   - View Channels
+   - Read Messages/View Messages
    - Use Slash Commands
    - Embed Links
 4. 生成されたURLでボットをサーバーに招待

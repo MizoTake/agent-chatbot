@@ -38,22 +38,37 @@ export class DiscordAdapter implements BotAdapter {
 
       const isMention = message.mentions.has(this.client.user!);
       const isDirectMessage = message.channel.type === 1; // DM channel type
+      const isGuildChannel = message.channel.type === 0; // Guild text channel
 
-      if (!isDirectMessage && !isMention) return;
+      // Handle DMs, mentions, and all guild channel messages
+      if (isDirectMessage || isMention || isGuildChannel) {
+        const botMessage: BotMessage = {
+          text: this.cleanMessageContent(message.content),
+          channelId: message.channelId,
+          userId: message.author.id,
+          isDirectMessage,
+          isMention,
+          isCommand: false,
+        };
 
-      const botMessage: BotMessage = {
-        text: this.cleanMessageContent(message.content),
-        channelId: message.channelId,
-        userId: message.author.id,
-        isDirectMessage,
-        isMention,
-        isCommand: false,
-      };
-
-      if (this.messageHandler) {
-        const response = await this.messageHandler(botMessage);
-        if (response) {
-          await this.sendMessage(message.channelId, response);
+        if (this.messageHandler) {
+          // Send thinking message for guild channels
+          if (isGuildChannel && !isMention) {
+            const thinkingMsg = await message.reply('🤔 考えています...');
+            
+            const response = await this.messageHandler(botMessage);
+            if (response) {
+              await thinkingMsg.edit({
+                content: response.text,
+                embeds: response.blocks ? this.convertBlocksToEmbeds(response.blocks) : undefined,
+              });
+            }
+          } else {
+            const response = await this.messageHandler(botMessage);
+            if (response) {
+              await this.sendMessage(message.channelId, response);
+            }
+          }
         }
       }
     });

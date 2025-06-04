@@ -3,6 +3,11 @@ import { spawn } from 'child_process';
 interface ClaudeResponse {
   response: string;
   error?: string;
+  timedOut?: boolean;
+}
+
+interface BackgroundCallback {
+  (response: ClaudeResponse): void;
 }
 
 export class ClaudeCLIClient {
@@ -14,7 +19,7 @@ export class ClaudeCLIClient {
     this.timeout = timeout;
   }
 
-  async sendPrompt(prompt: string, workingDirectory?: string): Promise<ClaudeResponse> {
+  async sendPrompt(prompt: string, workingDirectory?: string, onBackgroundComplete?: BackgroundCallback): Promise<ClaudeResponse> {
     return new Promise((resolve) => {
       // エスケープ処理
       const escapedPrompt = prompt.replace(/'/g, "'\\''");
@@ -45,7 +50,8 @@ export class ClaudeCLIClient {
           claudeProcess.unref();
           resolve({
             response: '',
-            error: 'タイムアウト: 応答時間の制限に達しました。Claudeは引き続きバックグラウンドで処理を続けています。'
+            error: 'タイムアウト: 応答時間の制限に達しました。Claudeは引き続きバックグラウンドで処理を続けています。',
+            timedOut: true
           });
         }
       }, this.timeout);
@@ -59,9 +65,10 @@ export class ClaudeCLIClient {
       });
 
       claudeProcess.on('close', (code) => {
+        clearTimeout(timeoutId);
+
         if (!isResolved) {
           isResolved = true;
-          clearTimeout(timeoutId);
 
           if (code === 0) {
             resolve({
@@ -85,6 +92,18 @@ export class ClaudeCLIClient {
                 error: stderr || `プロセスがエラーコード ${code} で終了しました`
               });
             }
+          }
+        } else if (onBackgroundComplete) {
+          // タイムアウト後に処理が完了した場合、コールバックを呼ぶ
+          if (code === 0) {
+            onBackgroundComplete({
+              response: stdout.trim()
+            });
+          } else {
+            onBackgroundComplete({
+              response: '',
+              error: stderr || `バックグラウンド処理がエラーコード ${code} で終了しました`
+            });
           }
         }
       });

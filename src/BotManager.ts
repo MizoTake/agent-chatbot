@@ -42,7 +42,25 @@ export class BotManager {
       const repo = this.storageService.getChannelRepository(message.channelId);
       const workingDirectory = repo?.localPath;
 
-      const result = await this.claudeClient.sendPrompt(message.text, workingDirectory);
+      // バックグラウンド完了時のコールバック
+      const onBackgroundComplete = async (bgResult: any) => {
+        await bot.sendMessage(message.channelId, {
+          text: '✅ バックグラウンド処理が完了しました',
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: bgResult.error 
+                  ? `❌ バックグラウンド処理でエラーが発生しました:\n${bgResult.error}`
+                  : `✅ バックグラウンド処理が完了しました:\n${bgResult.response}`,
+              },
+            },
+          ],
+        });
+      };
+
+      const result = await this.claudeClient.sendPrompt(message.text, workingDirectory, onBackgroundComplete);
 
       if (result.error) {
         return {
@@ -76,7 +94,25 @@ export class BotManager {
       const repo = this.storageService.getChannelRepository(message.channelId);
       const workingDirectory = repo?.localPath;
 
-      const result = await this.claudeClient.sendPrompt(message.text, workingDirectory);
+      // バックグラウンド完了時のコールバック
+      const onBackgroundComplete = async (bgResult: any) => {
+        await bot.sendMessage(message.channelId, {
+          text: '✅ バックグラウンド処理が完了しました',
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: bgResult.error 
+                  ? `❌ バックグラウンド処理でエラーが発生しました:\n${bgResult.error}`
+                  : `✅ バックグラウンド処理が完了しました:\n${bgResult.response}`,
+              },
+            },
+          ],
+        });
+      };
+
+      const result = await this.claudeClient.sendPrompt(message.text, workingDirectory, onBackgroundComplete);
 
       if (result.error) {
         return {
@@ -110,9 +146,27 @@ export class BotManager {
       const repo = this.storageService.getChannelRepository(message.channelId);
       const workingDirectory = repo?.localPath;
 
+      // バックグラウンド完了時のコールバック
+      const onBackgroundComplete = async (bgResult: any) => {
+        await bot.sendMessage(message.channelId, {
+          text: '💻 バックグラウンドコード処理が完了しました',
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: bgResult.error 
+                  ? `❌ バックグラウンド処理でエラーが発生しました:\n${bgResult.error}`
+                  : `💻 バックグラウンドコード処理が完了しました:\n${bgResult.response}`,
+              },
+            },
+          ],
+        });
+      };
+
       // Add code context to the prompt
       const codePrompt = `Please provide a code solution or explanation for: ${message.text}`;
-      const result = await this.claudeClient.sendPrompt(codePrompt, workingDirectory);
+      const result = await this.claudeClient.sendPrompt(codePrompt, workingDirectory, onBackgroundComplete);
 
       if (result.error) {
         return {

@@ -127,29 +127,41 @@ export class SlackAdapter implements BotAdapter {
       }
     });
 
-    // Handle direct messages
+    // Handle direct messages and channel messages
     this.app.message(async ({ message, client }) => {
       if (message.subtype) return;
       
       const directMessage = message.channel_type === 'im';
+      const channelMessage = message.channel_type === 'channel' || message.channel_type === 'group';
       
-      if (directMessage && message.text) {
+      // Handle both DMs and channel messages
+      if ((directMessage || channelMessage) && message.text) {
         const botMessage: BotMessage = {
           text: message.text,
           channelId: message.channel,
           userId: message.user || '',
-          isDirectMessage: true,
+          isDirectMessage: directMessage,
           isMention: false,
           isCommand: false,
         };
 
         if (this.messageHandler) {
+          // チャンネルメッセージの場合は考え中メッセージを送信
+          if (channelMessage) {
+            await client.chat.postMessage({
+              channel: message.channel,
+              text: '🤔 考えています...',
+              thread_ts: message.ts, // スレッドに返信
+            });
+          }
+
           const response = await this.messageHandler(botMessage);
           if (response) {
             await client.chat.postMessage({
               channel: message.channel,
               text: response.text,
               blocks: response.blocks,
+              thread_ts: channelMessage ? message.ts : undefined, // チャンネルメッセージはスレッドに返信
             });
           }
         }
