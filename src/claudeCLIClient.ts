@@ -17,7 +17,7 @@ export class ClaudeCLIClient {
     this.timeout = timeout;
   }
 
-  async sendPrompt(prompt: string): Promise<ClaudeResponse> {
+  async sendPrompt(prompt: string, workingDirectory?: string): Promise<ClaudeResponse> {
     try {
       // エスケープ処理
       const escapedPrompt = prompt.replace(/'/g, "'\\''");
@@ -26,9 +26,14 @@ export class ClaudeCLIClient {
       const command = `echo '${escapedPrompt}' | ${this.claudeCommand}`;
       
       console.log('Executing Claude command...');
+      if (workingDirectory) {
+        console.log(`Working directory: ${workingDirectory}`);
+      }
+      
       const { stdout, stderr } = await execAsync(command, {
         timeout: this.timeout,
-        maxBuffer: 1024 * 1024 * 10 // 10MB
+        maxBuffer: 1024 * 1024 * 10, // 10MB
+        cwd: workingDirectory // Set working directory if provided
       });
 
       if (stderr && !stdout) {

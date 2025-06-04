@@ -125,6 +125,16 @@ export class DiscordAdapter implements BotAdapter {
           required: true,
         }],
       },
+      {
+        name: 'claude-repo',
+        description: 'Manage repository for this channel',
+        options: [{
+          name: 'prompt',
+          type: 3, // STRING type
+          description: 'Repository URL to clone or "status" to check current repo',
+          required: true,
+        }],
+      },
     ];
 
     try {

@@ -71,6 +71,32 @@ export class SlackAdapter implements BotAdapter {
       }
     });
 
+    this.app.command('/claude-repo', async ({ command, ack, respond }) => {
+      await ack();
+      
+      const botMessage: BotMessage = {
+        text: command.text || '',
+        channelId: command.channel_id,
+        userId: command.user_id,
+        isDirectMessage: command.channel_name === 'directmessage',
+        isMention: false,
+        isCommand: true,
+        commandName: 'claude-repo',
+      };
+
+      const handler = this.commandHandlers.get('claude-repo');
+      if (handler) {
+        await respond({ text: '🔄 Processing repository command...' });
+        const response = await handler(botMessage);
+        if (response) {
+          await respond({
+            text: response.text,
+            blocks: response.blocks,
+          });
+        }
+      }
+    });
+
     // Handle app mentions
     this.app.event('app_mention', async ({ event, client }) => {
       const mentionText = event.text.replace(/<@[A-Z0-9]+>/g, '').trim();

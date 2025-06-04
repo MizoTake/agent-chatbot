@@ -8,6 +8,7 @@ Claude CodeをローカルサーバーでSlackとDiscordの両方に対応させ
 - **スラッシュコマンド**
   - `/claude <prompt>` - Claude Codeにチャット形式で質問
   - `/claude-code <prompt>` - コーディング特化のクエリ
+  - `/claude-repo <url|status|delete>` - Gitリポジトリをチャンネルに紐付け
 - **メンション応答** - ボットをメンションして質問
 - **ダイレクトメッセージ** - DMで直接会話
 
@@ -15,8 +16,15 @@ Claude CodeをローカルサーバーでSlackとDiscordの両方に対応させ
 - **スラッシュコマンド**
   - `/claude <prompt>` - Claude Codeにチャット形式で質問
   - `/claude-code <prompt>` - コーディング特化のクエリ
+  - `/claude-repo <url|status|delete>` - Gitリポジトリをチャンネルに紐付け
 - **メンション応答** - ボットをメンションして質問
 - **ダイレクトメッセージ** - DMで直接会話
+
+### リポジトリ連携機能
+- **リポジトリクローン** - Gitリポジトリをクローンしてチャンネルに紐付け
+- **コンテキスト認識** - 紐付けられたリポジトリのコンテキストでClaudeが応答
+- **ステータス確認** - 現在のリポジトリ状態を確認
+- **紐付け解除** - チャンネルとリポジトリの紐付けを削除
 
 ## セットアップ
 
@@ -58,6 +66,7 @@ Claude CodeをローカルサーバーでSlackとDiscordの両方に対応させ
 以下のコマンドを作成:
 - `/claude` - Command: /claude, Request URL: 任意
 - `/claude-code` - Command: /claude-code, Request URL: 任意
+- `/claude-repo` - Command: /claude-repo, Request URL: 任意
 
 ### 4. アプリケーションセットアップ
 
@@ -172,6 +181,9 @@ PORT=3000
 ```
 /claude TypeScriptでFizzBuzzを書いて
 /claude-code React Hooksの使い方を教えて
+/claude-repo https://github.com/username/repo.git  # リポジトリをクローン
+/claude-repo status                                 # 現在のリポジトリ状態を確認
+/claude-repo delete                                 # リポジトリの紐付けを解除
 ```
 
 #### メンション
@@ -188,6 +200,9 @@ PORT=3000
 ```
 /claude prompt:TypeScriptでFizzBuzzを書いて
 /claude-code prompt:React Hooksの使い方を教えて
+/claude-repo prompt:https://github.com/username/repo.git  # リポジトリをクローン
+/claude-repo prompt:status                                 # 現在のリポジトリ状態を確認
+/claude-repo prompt:delete                                 # リポジトリの紐付けを解除
 ```
 
 #### メンション
@@ -197,6 +212,16 @@ PORT=3000
 
 #### ダイレクトメッセージ
 ボットとのDMで直接メッセージを送信
+
+### リポジトリ連携
+
+チャンネルにリポジトリを紐付けると、そのチャンネルでのすべてのClaude操作がリポジトリのコンテキストで実行されます：
+
+1. **リポジトリをクローン**: `/claude-repo <リポジトリURL>`
+2. **状態確認**: `/claude-repo status`
+3. **紐付け解除**: `/claude-repo delete`
+
+紐付け後は、通常の `/claude` や `/claude-code` コマンドがリポジトリのディレクトリで実行されます。
 
 ## トラブルシューティング
 
