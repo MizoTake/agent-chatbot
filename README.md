@@ -1,9 +1,17 @@
-# Claude Slack App
+# Claude Chat Bot
 
-Claude CodeをローカルサーバーでSlackと連携させるアプリケーション
+Claude CodeをローカルサーバーでSlackとDiscordの両方に対応させるボットアプリケーション
 
 ## 機能
 
+### Slack
+- **スラッシュコマンド**
+  - `/claude <prompt>` - Claude Codeにチャット形式で質問
+  - `/claude-code <prompt>` - コーディング特化のクエリ
+- **メンション応答** - ボットをメンションして質問
+- **ダイレクトメッセージ** - DMで直接会話
+
+### Discord
 - **スラッシュコマンド**
   - `/claude <prompt>` - Claude Codeにチャット形式で質問
   - `/claude-code <prompt>` - コーディング特化のクエリ
@@ -16,7 +24,8 @@ Claude CodeをローカルサーバーでSlackと連携させるアプリケー�
 
 - Node.js (v14以上) またはDocker
 - Claude Codeがローカルで実行中（デフォルト: http://localhost:5173）
-- Slack ワークスペース管理権限
+- Slack ワークスペース管理権限（Slackボットを使用する場合）
+- Discord サーバー管理権限（Discordボットを使用する場合）
 
 ### 2. Slack App作成
 
@@ -115,10 +124,13 @@ docker run -d \
 `.env`ファイルに以下を設定:
 
 ```env
-# Slack App Configuration
+# Slack App Configuration (optional - leave empty to disable Slack)
 SLACK_BOT_TOKEN=xoxb-your-bot-token       # OAuth & Permissions → Bot User OAuth Token
 SLACK_SIGNING_SECRET=your-signing-secret   # Basic Information → Signing Secret
 SLACK_APP_TOKEN=xapp-your-app-token       # Basic Information → App-Level Tokens
+
+# Discord Bot Configuration (optional - leave empty to disable Discord)
+DISCORD_BOT_TOKEN=your-discord-bot-token  # Discord Developer Portal → Bot → Token
 
 # Claude Code Server Configuration
 CLAUDE_CODE_URL=http://localhost:5173      # Claude Codeサーバーのアドレス
@@ -133,21 +145,58 @@ PORT=3000
 2. "Install App" → "Install to Workspace"
 3. 権限を確認して承認
 
+### 7. Discord Bot作成
+
+1. [Discord Developer Portal](https://discord.com/developers/applications)にアクセス
+2. "New Application"をクリックしてアプリ作成
+3. "Bot"セクションに移動
+4. "Add Bot"をクリック
+5. "Token"セクションで"Copy"をクリックしてトークンを取得
+
+### 8. Discord Bot権限設定
+
+1. "OAuth2" → "URL Generator"に移動
+2. Scopes: "bot", "applications.commands"を選択
+3. Bot Permissions:
+   - Send Messages
+   - Read Message History
+   - Use Slash Commands
+   - Embed Links
+4. 生成されたURLでボットをサーバーに招待
+
 ## 使用方法
 
-### スラッシュコマンド
+### Slack
+
+#### スラッシュコマンド
 ```
 /claude TypeScriptでFizzBuzzを書いて
 /claude-code React Hooksの使い方を教えて
 ```
 
-### メンション
+#### メンション
 ```
 @ClaudeBot Pythonでファイルを読み込む方法は？
 ```
 
-### ダイレクトメッセージ
+#### ダイレクトメッセージ
 ボットとのDMチャンネルで直接メッセージを送信
+
+### Discord
+
+#### スラッシュコマンド
+```
+/claude prompt:TypeScriptでFizzBuzzを書いて
+/claude-code prompt:React Hooksの使い方を教えて
+```
+
+#### メンション
+```
+@ClaudeBot Pythonでファイルを読み込む方法は？
+```
+
+#### ダイレクトメッセージ
+ボットとのDMで直接メッセージを送信
 
 ## トラブルシューティング
 
@@ -195,6 +244,6 @@ npx tsc --noEmit
 - Node.js 18 Alpine Linuxベース
 - セキュリティのため非rootユーザーで実行
 
-### カスタマイズ
+### 重要な注意事項
 
-Claude CodeもDockerで実行する場合は、`docker-compose.yml`のコメントアウトされた`claude-code`サービスを有効化してください。
+**Claude Codeは公式Dockerイメージを提供していません。** Claude Codeはホストマシンで直接実行する必要があります。詳細なセットアップ方法については[README_CLAUDE_CODE_SETUP.md](./README_CLAUDE_CODE_SETUP.md)を参照してください。
