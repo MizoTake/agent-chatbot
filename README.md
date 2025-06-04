@@ -265,21 +265,3 @@ npm run build
 # タイプチェック
 npx tsc --noEmit
 ```
-
-## Docker設定詳細
-
-### docker-compose.yml
-
-- `host.docker.internal`を使用してホストマシンのClaude Codeに接続
-- ヘルスチェック機能付き
-- 自動再起動設定
-
-### Dockerfile
-
-- マルチステージビルドで軽量化
-- Node.js 18 Alpine Linuxベース
-- セキュリティのため非rootユーザーで実行
-
-### 重要な注意事項
-
-**Claude Codeは公式Dockerイメージを提供していません。** Claude Codeはホストマシンで直接実行する必要があります。詳細なセットアップ方法については[README_CLAUDE_CODE_SETUP.md](./README_CLAUDE_CODE_SETUP.md)を参照してください。

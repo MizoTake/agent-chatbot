@@ -58,9 +58,10 @@ export class DiscordAdapter implements BotAdapter {
             
             const response = await this.messageHandler(botMessage);
             if (response) {
+              const embeds = response.blocks ? this.convertBlocksToEmbeds(response.blocks) : undefined;
               await thinkingMsg.edit({
-                content: response.text,
-                embeds: response.blocks ? this.convertBlocksToEmbeds(response.blocks) : undefined,
+                content: embeds && embeds.length > 0 ? undefined : response.text,
+                embeds: embeds,
               });
             }
           } else {
@@ -91,9 +92,10 @@ export class DiscordAdapter implements BotAdapter {
         await interaction.deferReply();
         const response = await handler(botMessage);
         if (response) {
+          const embeds = response.blocks ? this.convertBlocksToEmbeds(response.blocks) : undefined;
           await interaction.editReply({
-            content: response.text,
-            embeds: response.blocks ? this.convertBlocksToEmbeds(response.blocks) : undefined,
+            content: embeds && embeds.length > 0 ? undefined : response.text,
+            embeds: embeds,
           });
         }
       }
@@ -107,15 +109,18 @@ export class DiscordAdapter implements BotAdapter {
 
   private convertBlocksToEmbeds(blocks: any[]): any[] {
     // Convert Slack-style blocks to Discord embeds
-    return blocks.map(block => {
+    const embeds: any[] = [];
+    
+    blocks.forEach(block => {
       if (block.type === 'section' && block.text) {
-        return {
+        embeds.push({
           description: block.text.text,
           color: 0x5865F2,
-        };
+        });
       }
-      return null;
-    }).filter(Boolean);
+    });
+    
+    return embeds;
   }
 
   private async registerSlashCommands(): Promise<void> {
@@ -176,7 +181,7 @@ export class DiscordAdapter implements BotAdapter {
       if (channel && (channel instanceof TextChannel || channel instanceof DMChannel)) {
         const embeds = response.blocks ? this.convertBlocksToEmbeds(response.blocks) : undefined;
         await channel.send({
-          content: response.text,
+          content: embeds && embeds.length > 0 ? undefined : response.text,
           embeds,
         });
       }
