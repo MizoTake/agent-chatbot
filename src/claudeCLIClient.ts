@@ -34,11 +34,11 @@ export class ClaudeCLIClient {
 
   constructor(
     claudeCommand: string = 'claude', 
-    timeout: number = 900000, // 15分 (900秒) - Discordの最大応答時間に合わせる
+    timeout?: number, // タイムアウトなし
     maxOutputSize: number = 10 * 1024 * 1024 // 10MB
   ) {
     this.claudeCommand = claudeCommand;
-    this.timeout = timeout;
+    this.timeout = timeout || 0; // 0 = タイムアウトなし
     this.maxOutputSize = maxOutputSize;
     this.activeProcesses = new Set();
   }
@@ -172,27 +172,29 @@ export class ClaudeCLIClient {
       let outputSize = 0;
       let outputTruncated = false;
 
-      // タイムアウト処理 - プロセスをkillしない
-      timeoutId = setTimeout(() => {
-        if (!isResolved) {
-          isResolved = true;
-          // プロセスは継続させ、プロセスグループから切り離す
-          claudeProcess.unref();
-          
-          // タイムアウトをメトリクスに記録
-          logger.warn('Claude process timed out', {
-            timeout_ms: this.timeout,
-            workingDirectory
-          });
-          
-          // タイムアウトは特殊ケースとしてresolve
-          resolve({
-            response: '',
-            error: 'タイムアウト: 応答時間の制限に達しました。Claudeは引き続きバックグラウンドで処理を続けています。',
-            timedOut: true
-          });
-        }
-      }, this.timeout);
+      // タイムアウト処理 - timeoutが設定されている場合のみ
+      if (this.timeout > 0) {
+        timeoutId = setTimeout(() => {
+          if (!isResolved) {
+            isResolved = true;
+            // プロセスは継続させ、プロセスグループから切り離す
+            claudeProcess.unref();
+            
+            // タイムアウトをメトリクスに記録
+            logger.warn('Claude process timed out', {
+              timeout_ms: this.timeout,
+              workingDirectory
+            });
+            
+            // タイムアウトは特殊ケースとしてresolve
+            resolve({
+              response: '',
+              error: 'タイムアウト: 応答時間の制限に達しました。Claudeは引き続きバックグラウンドで処理を続けています。',
+              timedOut: true
+            });
+          }
+        }, this.timeout);
+      }
 
       // プロセスをアクティブリストに追加
       this.activeProcesses.add(claudeProcess);
@@ -242,7 +244,9 @@ export class ClaudeCLIClient {
       });
 
       claudeProcess.on('close', (code) => {
-        clearTimeout(timeoutId);
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
         this.activeProcesses.delete(claudeProcess);
 
         if (!isResolved) {
@@ -285,7 +289,9 @@ export class ClaudeCLIClient {
       claudeProcess.on('error', (err) => {
         if (!isResolved) {
           isResolved = true;
-          clearTimeout(timeoutId);
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
           this.activeProcesses.delete(claudeProcess);
           
           if (err.message.includes('ENOENT')) {
