@@ -45,7 +45,8 @@ export class SlackAdapter implements BotAdapter {
       }
     });
 
-    this.app.command('/claude-code', async ({ command, ack, respond }) => {
+    // /claude-help command
+    this.app.command('/claude-help', async ({ command, ack, respond }) => {
       await ack();
       
       const botMessage: BotMessage = {
@@ -55,12 +56,63 @@ export class SlackAdapter implements BotAdapter {
         isDirectMessage: command.channel_name === 'directmessage',
         isMention: false,
         isCommand: true,
-        commandName: 'claude-code',
+        commandName: 'claude-help',
       };
 
-      const handler = this.commandHandlers.get('claude-code');
+      const handler = this.commandHandlers.get('claude-help');
       if (handler) {
-        await respond({ text: '💻 Working on your code...' });
+        const response = await handler(botMessage);
+        if (response) {
+          await respond({
+            text: response.text,
+            blocks: response.blocks,
+          });
+        }
+      }
+    });
+
+    // /claude-status command
+    this.app.command('/claude-status', async ({ command, ack, respond }) => {
+      await ack();
+      
+      const botMessage: BotMessage = {
+        text: command.text || '',
+        channelId: command.channel_id,
+        userId: command.user_id,
+        isDirectMessage: command.channel_name === 'directmessage',
+        isMention: false,
+        isCommand: true,
+        commandName: 'claude-status',
+      };
+
+      const handler = this.commandHandlers.get('claude-status');
+      if (handler) {
+        const response = await handler(botMessage);
+        if (response) {
+          await respond({
+            text: response.text,
+            blocks: response.blocks,
+          });
+        }
+      }
+    });
+
+    // /claude-clear command
+    this.app.command('/claude-clear', async ({ command, ack, respond }) => {
+      await ack();
+      
+      const botMessage: BotMessage = {
+        text: command.text || '',
+        channelId: command.channel_id,
+        userId: command.user_id,
+        isDirectMessage: command.channel_name === 'directmessage',
+        isMention: false,
+        isCommand: true,
+        commandName: 'claude-clear',
+      };
+
+      const handler = this.commandHandlers.get('claude-clear');
+      if (handler) {
         const response = await handler(botMessage);
         if (response) {
           await respond({

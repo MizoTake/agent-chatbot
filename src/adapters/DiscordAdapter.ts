@@ -136,14 +136,16 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'claude-code',
-        description: 'Get coding help from Claude',
-        options: [{
-          name: 'prompt',
-          type: 3, // STRING type
-          description: 'Your coding question or task',
-          required: true,
-        }],
+        name: 'claude-help',
+        description: 'Claude Botのヘルプを表示',
+      },
+      {
+        name: 'claude-status',
+        description: 'Claude CLIとリポジトリの状態を確認',
+      },
+      {
+        name: 'claude-clear',
+        description: '会話のコンテキストをクリア',
       },
       {
         name: 'claude-repo',

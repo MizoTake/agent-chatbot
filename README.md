@@ -13,7 +13,6 @@ Claude CLIをSlackとDiscordに統合し、Gitリポジトリのコンテキス�
 - **Claude CLI統合**: Claudeの機能に直接アクセス
 - **スレッド管理**: スレッド内で会話のコンテキストを維持
 - **Socket Mode**: パブリックURLを必要としない簡単なセットアップ（Slack）
-- **Docker対応**: コンテナ化されたデプロイメント
 - **グレースフルシャットダウン**: 適切なシグナル処理とクリーンアップ
 - **構造化ログ**: JSONと人間が読みやすいログ形式
 - **エラー回復**: 指数バックオフによる自動リトライ
@@ -25,7 +24,6 @@ Claude CLIをSlackとDiscordに統合し、Gitリポジトリのコンテキス�
 - [Claude CLI](https://claude.ai/download) がインストールされ設定済みであること
 - Slack用: 管理者アクセス権限を持つワークスペース
 - Discord用: ボット管理権限を持つサーバー
-- Docker（オプション、コンテナ化されたデプロイメント用）
 - Git（リポジトリ機能用）
 
 ## 🚀 クイックスタート
@@ -98,23 +96,13 @@ npm start
 - **チャンネルメンション**: `@ボット名 メッセージ`
 - **スラッシュコマンド**:
   - `/claude <プロンプト>` - Claudeにプロンプトを送信
-  - `/claude-code <プロンプト>` - コード特化の支援を取得
   - `/claude-repo <URL>` - リポジトリをクローンしてリンク
   - `/claude-repo status` - リポジトリの状態を確認
   - `/claude-repo delete` - リポジトリのリンクを削除
-
-### Dockerデプロイメント
-
-```bash
-# Docker Composeでビルドして実行
-docker-compose up -d
-
-# ログを表示
-docker-compose logs -f
-
-# コンテナを停止
-docker-compose down
-```
+  - `/claude-repo reset` - すべてのチャンネルのリポジトリリンクをリセット
+  - `/claude-help` - コマンドのヘルプを表示
+  - `/claude-status` - Claude CLIとリポジトリの状態を確認
+  - `/claude-clear` - 会話のコンテキストをクリア
 
 ### リポジトリ統合
 
@@ -176,7 +164,7 @@ claude-slack-app/
 ### ボットが応答しない
 1. 環境変数が正しく設定されているか確認
 2. Claude CLIがインストールされているか確認: `claude --version`
-3. ログを確認: `npm run dev` またはDockerログを確認
+3. ログを確認: `npm run dev`
 4. ボットがチャンネル/サーバーに招待されているか確認
 5. チャンネル/サーバー設定でボットの権限を確認
 
@@ -189,16 +177,6 @@ claude-slack-app/
 - Gitがインストールされアクセス可能か確認
 - `repositories/`ディレクトリへの書き込み権限を確認
 - リポジトリURLがアクセス可能か確認
-
-## 🤝 貢献
-
-貢献を歓迎します！以下の手順でお願いします：
-
-1. リポジトリをフォーク
-2. フィーチャーブランチを作成
-3. 変更を加える
-4. テストとリンティングを実行
-5. プルリクエストを送信
 
 ## 📄 ライセンス
 

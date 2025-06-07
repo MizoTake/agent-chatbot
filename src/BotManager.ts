@@ -143,57 +143,77 @@ export class BotManager {
       };
     });
 
-    // Setup /claude-code command handler
-    bot.onCommand('claude-code', async (message: BotMessage): Promise<BotResponse | null> => {
-      if (!message.text) {
-        return {
-          text: '📝 Please provide a code-related prompt. Usage: `/claude-code <your coding task>`',
-        };
-      }
-
-      // Check if channel has a repository configured
-      const repo = this.storageService.getChannelRepository(message.channelId);
-      const workingDirectory = repo?.localPath;
-
-      // バックグラウンド完了時のコールバック
-      const onBackgroundComplete = async (bgResult: any) => {
-        await bot.sendMessage(message.channelId, {
-          text: '💻 バックグラウンドコード処理が完了しました',
-          blocks: [
-            {
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: bgResult.error 
-                  ? `❌ バックグラウンド処理でエラーが発生しました:\n${bgResult.error}`
-                  : `💻 バックグラウンドコード処理が完了しました:\n${bgResult.response}`,
-              },
-            },
-          ],
-        });
-      };
-
-      // Add code context to the prompt
-      const codePrompt = `Please provide a code solution or explanation for: ${message.text}`;
-      const result = await this.claudeClient.sendPrompt(codePrompt, {
-        workingDirectory,
-        onBackgroundComplete
-      });
-
-      if (result.error) {
-        return {
-          text: `❌ Error: ${result.error}`,
-        };
-      }
-
+    // Setup /claude-help command handler
+    bot.onCommand('claude-help', async (message: BotMessage): Promise<BotResponse | null> => {
       return {
-        text: result.response,
+        text: 'Claude Bot ヘルプ',
         blocks: [
           {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `*Code Response:*\n${result.response}`,
+              text: '*利用可能なコマンド:*\n\n' +
+                    '• `/claude <プロンプト>` - Claudeに質問やタスクを送信\n' +
+                    '• `/claude-repo <URL>` - Gitリポジトリをクローンしてチャンネルにリンク\n' +
+                    '• `/claude-repo status` - 現在のリポジトリ状態を確認\n' +
+                    '• `/claude-repo delete` - このチャンネルのリポジトリリンクを削除\n' +
+                    '• `/claude-repo reset` - すべてのリポジトリリンクをリセット\n' +
+                    '• `/claude-status` - Claude CLIの状態を確認\n' +
+                    '• `/claude-clear` - 会話のコンテキストをクリア\n' +
+                    '• `/claude-help` - このヘルプを表示\n\n' +
+                    '*その他の使い方:*\n' +
+                    '• ボットに直接メッセージを送信\n' +
+                    '• チャンネルでボットをメンション (@ボット名)\n\n' +
+                    '*リポジトリ連携:*\n' +
+                    'リポジトリをリンクすると、Claudeはそのリポジトリのコードコンテキストで応答します。',
+            },
+          },
+        ],
+      };
+    });
+
+    // Setup /claude-status command handler
+    bot.onCommand('claude-status', async (message: BotMessage): Promise<BotResponse | null> => {
+      const isAvailable = await this.claudeClient.checkAvailability();
+      const repo = this.storageService.getChannelRepository(message.channelId);
+      
+      let statusText = `*Claude CLI:* ${isAvailable ? '✅ 利用可能' : '❌ 利用不可'}\n`;
+      statusText += `*チャンネルID:* ${message.channelId}\n`;
+      
+      if (repo) {
+        statusText += `*リンクされたリポジトリ:* ${repo.repositoryUrl}\n`;
+        statusText += `*リポジトリパス:* ${repo.localPath}`;
+      } else {
+        statusText += `*リンクされたリポジトリ:* なし`;
+      }
+      
+      return {
+        text: 'システムステータス',
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: statusText,
+            },
+          },
+        ],
+      };
+    });
+
+    // Setup /claude-clear command handler
+    bot.onCommand('claude-clear', async (message: BotMessage): Promise<BotResponse | null> => {
+      // 注: 現在の実装ではClaude CLIは状態を保持していないため、
+      // このコマンドは将来の拡張用のプレースホルダーです
+      return {
+        text: '🧹 会話コンテキストをクリアしました',
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: '✅ 新しい会話を開始できます。\n\n' +
+                    '_注: 現在の実装では各メッセージは独立して処理されます。_',
             },
           },
         ],
@@ -267,6 +287,38 @@ export class BotManager {
             text: '❌ このチャンネルにはリポジトリが設定されていません',
           };
         }
+      }
+
+      // Handle reset command - すべてのリポジトリ関係をリセット
+      if (args === 'reset') {
+        const channels = this.storageService.getAllChannelRepositories();
+        const channelCount = Object.keys(channels).length;
+        
+        if (channelCount === 0) {
+          return {
+            text: '❌ 現在リポジトリが紐付けられているチャンネルはありません',
+          };
+        }
+
+        // すべてのチャンネルのリポジトリ紐付けを削除
+        for (const channelId of Object.keys(channels)) {
+          this.storageService.deleteChannelRepository(channelId);
+        }
+
+        return {
+          text: `✅ ${channelCount}個のチャンネルのリポジトリ紐付けをすべて削除しました`,
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `*リポジトリ関係のリセット完了*\n\n` +
+                      `削除されたチャンネル数: ${channelCount}\n\n` +
+                      `すべてのチャンネルのリポジトリ紐付けが削除されました。`,
+              },
+            },
+          ],
+        };
       }
 
       // Handle clone command (repository URL)

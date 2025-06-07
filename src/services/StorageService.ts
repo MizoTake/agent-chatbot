@@ -68,7 +68,7 @@ export class StorageService {
     return result;
   }
 
-  getAllChannelRepositories(): ChannelRepository[] {
-    return Array.from(this.data.values());
+  getAllChannelRepositories(): Record<string, ChannelRepository> {
+    return Object.fromEntries(this.data);
   }
 }

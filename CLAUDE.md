@@ -20,11 +20,10 @@ npm start
 # TypeScript type checking
 npx tsc --noEmit
 
-# Docker operations
-./start-docker.sh              # Start with Docker Compose
-docker-compose up -d           # Start in detached mode
-docker-compose logs -f         # View logs
-docker-compose down            # Stop containers
+# Start/stop scripts
+./scripts/start.sh             # Start in background
+./scripts/stop.sh              # Stop the bot
+./scripts/restart.sh           # Restart the bot
 ```
 
 ## Architecture Overview
@@ -36,7 +35,7 @@ This is a multi-platform bot application that connects Slack and Discord to a lo
 1. **Main Application (`src/index.ts`)**
    - Detects available platform credentials and initializes appropriate bots
    - Manages multiple bot instances through BotManager
-   - Includes a health check HTTP server on the configured port for Docker monitoring
+   - Includes a health check HTTP server on the configured port
    - Handles graceful shutdown for all active bots
 
 2. **Bot Manager (`src/BotManager.ts`)**
@@ -84,14 +83,6 @@ This is a multi-platform bot application that connects Slack and Discord to a lo
   - Supports working directory context for repository-aware operations
   - Commands are executed with proper escaping and timeout handling
 
-### Docker Deployment
-
-The application is containerized with:
-- Multi-stage build for optimization
-- Non-root user execution for security
-- Health check support via HTTP endpoint
-- Host network access for local Claude Code connection
-
 ### Error Handling Pattern
 
 All user-facing operations follow this pattern:
@@ -107,6 +98,7 @@ The bot supports Git repository integration per channel:
 - **Clone**: `/claude-repo <git-url>` - Clones repository and links to channel
 - **Status**: `/claude-repo status` - Shows current repository information
 - **Delete**: `/claude-repo delete` - Removes channel-repository association
+- **Reset**: `/claude-repo reset` - Removes all channel-repository associations
 
 When a repository is linked to a channel:
 - All Claude commands execute in the repository's directory

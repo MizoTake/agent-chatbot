@@ -23,6 +23,12 @@ Unlink the repository from the channel:
 /claude-repo delete
 ```
 
+### Reset All Repository Links
+Remove all repository links from all channels:
+```
+/claude-repo reset
+```
+
 ## How It Works
 
 1. When you clone a repository using `/claude-repo`, the bot:
@@ -33,7 +39,6 @@ Unlink the repository from the channel:
 2. The repository context affects all Claude interactions:
    - Direct messages to Claude
    - `/claude` commands
-   - `/claude-code` commands
 
 3. Repository data is stored in:
    - `channel-repos.json` - Channel to repository mappings
