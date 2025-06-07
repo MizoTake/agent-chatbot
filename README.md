@@ -182,8 +182,6 @@ claude-slack-app/
 
 このプロジェクトはMITライセンスの下でライセンスされています - 詳細は[LICENSE](LICENSE)ファイルを参照してください。
 
-## 🙏 謝辞
+---
 
-- [Bolt for JavaScript](https://slack.dev/bolt-js)で構築（Slack）
-- [discord.js](https://discord.js.org/)を使用（Discord）
-- [Claude](https://claude.ai/)によるAIアシスタンス
+*このプロジェクトは[Claude Code](https://claude.ai/code)を使用して生成されました。*
