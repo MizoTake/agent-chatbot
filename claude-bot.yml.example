@@ -1,0 +1,68 @@
+# Claude Bot 設定ファイルサンプル
+# このファイルを claude-bot.yml としてコピーして使用してください
+
+# デフォルト設定
+defaults:
+  # Claude CLIのタイムアウト（ミリ秒）
+  # 0 = タイムアウトなし
+  timeout: 0
+  
+  # 最大出力サイズ
+  maxOutputSize: 10MB
+  
+  # ログレベル: debug, info, warn, error
+  logLevel: info
+  
+  # ログ形式: human, json
+  logFormat: human
+
+# リポジトリ管理設定
+repositories:
+  # 許可するリポジトリのパターン（glob形式）
+  allowlist:
+    - "github.com/myorg/*"
+    - "github.com/trusted-user/*"
+  
+  # ブロックするリポジトリのパターン
+  blocklist:
+    - "github.com/evil/*"
+  
+  # リポジトリの最大サイズ
+  maxSize: 1GB
+  
+  # デフォルトブランチ
+  defaultBranch: main
+
+# セキュリティ設定
+security:
+  # ロールベースアクセス制御を有効化
+  enableRBAC: false
+  
+  # 監査ログを有効化
+  enableAuditLog: false
+  
+  # チャンネルごとの最大リポジトリ数
+  maxReposPerChannel: 5
+
+# 機能フラグ
+features:
+  # プラグインシステムを有効化（将来の機能）
+  enablePlugins: false
+  
+  # メトリクス収集を有効化
+  enableMetrics: false
+  
+  # キャッシュを有効化
+  enableCache: false
+
+# コマンド設定
+commands:
+  # コマンドエイリアスを有効化
+  enableAliases: true
+  
+  # カスタムエイリアス
+  customAliases:
+    # 例: "/ai" を "/claude" にマップ
+    ai: claude
+    # 例: "/git" を "/claude-repo" にマップ
+    git: claude-repo

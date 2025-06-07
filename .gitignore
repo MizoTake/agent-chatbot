@@ -40,6 +40,14 @@ pids/
 channel-repos.json
 repositories/
 
+# Configuration
+claude-bot.yml
+claude-bot.yaml
+claude-bot.json
+.claude-bot.yml
+.claude-bot.yaml
+.claude-bot.json
+
 # Coverage
 coverage/
 .nyc_output/

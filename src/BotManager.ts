@@ -5,6 +5,10 @@ import { ClaudeCLIClient } from './claudeCLIClient';
 import { StorageService } from './services/StorageService';
 import { GitService } from './services/GitService';
 import { createLogger } from './utils/logger';
+import { ErrorMessages } from './utils/errorMessages';
+import { ProgressIndicator } from './utils/progressIndicator';
+import { resolveCommandAlias } from './config/commandAliases';
+import { ConfigLoader } from './config/configLoader';
 
 const logger = createLogger('BotManager');
 
@@ -18,6 +22,18 @@ export class BotManager {
     this.claudeClient = new ClaudeCLIClient();
     this.storageService = new StorageService();
     this.gitService = new GitService();
+    
+    // 設定を非同期で読み込む
+    this.loadConfig();
+  }
+  
+  private async loadConfig(): Promise<void> {
+    try {
+      const config = await ConfigLoader.load();
+      logger.info('Configuration loaded successfully');
+    } catch (error) {
+      logger.error('Failed to load config', error);
+    }
   }
 
   addSlackBot(token: string, signingSecret: string, appToken: string): void {
