@@ -1,267 +1,211 @@
-# Claude Chat Bot
+# Claude Slack/Discord Bot
 
-Claude CodeをローカルサーバーでSlackとDiscordの両方に対応させるボットアプリケーション
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 
-## 機能
+A multi-platform bot that integrates Claude CLI with Slack and Discord, providing AI assistance with Git repository context awareness.
 
-### Slack
-- **スラッシュコマンド**
-  - `/claude <prompt>` - Claude Codeにチャット形式で質問
-  - `/claude-code <prompt>` - コーディング特化のクエリ
-  - `/claude-repo <url|status|delete>` - Gitリポジトリをチャンネルに紐付け
-- **メンション応答** - ボットをメンションして質問
-- **ダイレクトメッセージ** - DMで直接会話
+## 🌟 Features
 
-### Discord
-- **スラッシュコマンド**
-  - `/claude <prompt>` - Claude Codeにチャット形式で質問
-  - `/claude-code <prompt>` - コーディング特化のクエリ
-  - `/claude-repo <url|status|delete>` - Gitリポジトリをチャンネルに紐付け
-- **メンション応答** - ボットをメンションして質問
-- **ダイレクトメッセージ** - DMで直接会話
+- **Multi-Platform Support**: Works with both Slack and Discord
+- **Repository Context**: Clone and manage Git repositories per channel
+- **Claude CLI Integration**: Direct access to Claude's capabilities
+- **Thread Management**: Maintains conversation context within threads
+- **Socket Mode**: Easy setup without public URL requirements (Slack)
+- **Docker Support**: Containerized deployment
+- **Graceful Shutdown**: Proper signal handling and cleanup
+- **Structured Logging**: JSON and human-readable log formats
+- **Error Recovery**: Automatic retry with exponential backoff
+- **Security**: Input validation and sanitization
 
-### リポジトリ連携機能
-- **リポジトリクローン** - Gitリポジトリをクローンしてチャンネルに紐付け
-- **コンテキスト認識** - 紐付けられたリポジトリのコンテキストでClaudeが応答
-- **ステータス確認** - 現在のリポジトリ状態を確認
-- **紐付け解除** - チャンネルとリポジトリの紐付けを削除
+## 📦 Prerequisites
 
-### チャンネルメッセージ処理
-- **Slack**: チャンネルに投稿されたすべてのメッセージをClaudeが処理（スレッドで返信）
-- **Discord**: チャンネルに投稿されたすべてのメッセージをClaudeが処理（返信形式）
-- スラッシュコマンドを使わずに直接質問可能
+- Node.js 18+ and npm
+- [Claude CLI](https://claude.ai/download) installed and configured
+- For Slack: Workspace with admin access
+- For Discord: Server with bot management permissions
+- Docker (optional, for containerized deployment)
+- Git (for repository features)
 
-## セットアップ
+## 🚀 Quick Start
 
-### 1. 必要なもの
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/claude-slack-discord-bot.git
+   cd claude-slack-discord-bot
+   ```
 
-- Node.js (v14以上) またはDocker
-- Claude Codeがローカルで実行中（デフォルト: http://localhost:5173）
-- Slack ワークスペース管理権限（Slackボットを使用する場合）
-- Discord サーバー管理権限（Discordボットを使用する場合）
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
 
-### 2. Slack App作成
+3. Configure your environment variables:
 
-1. [Slack API](https://api.slack.com/apps)にアクセス
-2. "Create New App" → "From scratch"を選択
-3. アプリ名を入力し、ワークスペースを選択
+   Create a `.env` file in the project root:
+   ```env
+   # Slack Bot Configuration (optional)
+   SLACK_BOT_TOKEN=xoxb-your-bot-token
+   SLACK_SIGNING_SECRET=your-signing-secret
+   SLACK_APP_TOKEN=xapp-your-app-token
 
-### 3. Slack App設定
+   # Discord Bot Configuration (optional)
+   DISCORD_BOT_TOKEN=your-discord-bot-token
 
-#### Socket Mode有効化
-- Settings → Socket Mode → Enable Socket Mode
-- App-Level Tokenを生成（connections:write scope）
+   # Server Configuration
+   PORT=3000
 
-#### OAuth & Permissions
-以下のBot Token Scopesを追加:
-- `app_mentions:read`
-- `chat:write`
-- `commands`
-- `im:history`
-- `im:read`
-- `im:write`
-- `channels:history` - チャンネルメッセージを読むため
-- `groups:history` - プライベートチャンネルメッセージを読むため
+   # Logging
+   LOG_LEVEL=info        # debug, info, warn, error
+   LOG_FORMAT=human      # human or json
 
-#### Event Subscriptions
-- Enable Events → On
-- Subscribe to bot events:
-  - `app_mention`
-  - `message.im`
-  - `message.channels` - パブリックチャンネルのメッセージ
-  - `message.groups` - プライベートチャンネルのメッセージ
+   # Debug Mode
+   DEBUG=false
+   ```
 
-#### Slash Commands
-以下のコマンドを作成:
-- `/claude` - Command: /claude, Request URL: 任意
-- `/claude-code` - Command: /claude-code, Request URL: 任意
-- `/claude-repo` - Command: /claude-repo, Request URL: 任意
+4. Build and start the bot:
+   ```bash
+   npm run build
+   npm start
+   ```
 
-### 4. アプリケーションセットアップ
+## 🚀 Usage
 
-#### 方法1: Node.jsで直接実行
+### Starting the Bot
 
+**Development mode:**
 ```bash
-# リポジトリをクローン
-git clone <repository-url>
-cd claude-slack-app
-
-# 依存関係インストール
-npm install
-
-# 環境変数設定
-cp .env.example .env
-# .envファイルを編集してSlackトークンを設定
-
-# 開発モードで起動
 npm run dev
+```
 
-# プロダクションビルド
-npm run build
+**Production mode:**
+```bash
 npm start
 ```
 
-#### 方法2: Dockerを使用
+**Using scripts:**
+```bash
+./scripts/start.sh       # Start in background
+./scripts/stop.sh        # Stop the bot
+./scripts/restart.sh     # Restart the bot
+```
+
+### Bot Commands
+
+#### General Commands
+- **Direct Message**: Send any message to the bot
+- **Channel Mention**: `@BotName your message`
+- **Slash Commands**:
+  - `/claude <prompt>` - Send a prompt to Claude
+  - `/claude-code <prompt>` - Get code-specific help
+  - `/claude-repo <url>` - Clone and link a repository
+  - `/claude-repo status` - Check repository status
+  - `/claude-repo delete` - Remove repository link
+
+### Docker Deployment
 
 ```bash
-# リポジトリをクローン
-git clone <repository-url>
-cd claude-slack-app
-
-# 環境変数設定
-cp .env.example .env
-# .envファイルを編集してSlackトークンを設定
-
-# Docker Composeで起動
+# Build and run with Docker Compose
 docker-compose up -d
 
-# ログを確認
+# View logs
 docker-compose logs -f
 
-# 停止
+# Stop containers
 docker-compose down
 ```
 
-#### 方法3: Dockerイメージを直接使用
+### Repository Integration
 
-```bash
-# イメージをビルド
-docker build -t claude-slack-app .
+Link a Git repository to a channel to give Claude context:
 
-# コンテナを実行
-docker run -d \
-  --name claude-slack-app \
-  -p 3000:3000 \
-  --env-file .env \
-  --add-host host.docker.internal:host-gateway \
-  claude-slack-app
+```
+/claude-repo https://github.com/user/repo.git
 ```
 
-### 5. 環境変数
+Once linked, all Claude commands in that channel will have access to the repository's code.
 
-`.env`ファイルに以下を設定:
+## ⚙️ Configuration
 
-```env
-# Slack App Configuration (optional - leave empty to disable Slack)
-SLACK_BOT_TOKEN=xoxb-your-bot-token       # OAuth & Permissions → Bot User OAuth Token
-SLACK_SIGNING_SECRET=your-signing-secret   # Basic Information → Signing Secret
-SLACK_APP_TOKEN=xapp-your-app-token       # Basic Information → App-Level Tokens
+### Environment Variables
 
-# Discord Bot Configuration (optional - leave empty to disable Discord)
-DISCORD_BOT_TOKEN=your-discord-bot-token  # Discord Developer Portal → Bot → Token
+**Slack Configuration:**
+- `SLACK_BOT_TOKEN`: Bot User OAuth Token (xoxb-...)
+- `SLACK_SIGNING_SECRET`: App Signing Secret
+- `SLACK_APP_TOKEN`: App-Level Token for Socket Mode (xapp-...)
 
-# Claude Code Server Configuration
-CLAUDE_CODE_URL=http://localhost:5173      # Claude Codeサーバーのアドレス
+**Discord Configuration:**
+- `DISCORD_BOT_TOKEN`: Discord Bot Token
 
-# Server Port (optional)
-PORT=3000
+**General Configuration:**
+- `PORT`: Health check server port (default: 3000)
+- `LOG_LEVEL`: Logging level (debug/info/warn/error)
+- `LOG_FORMAT`: Log format (human/json)
+- `DEBUG`: Enable debug output (true/false)
+
+### File Structure
+
+```
+claude-slack-app/
+├── src/
+│   ├── adapters/        # Platform-specific adapters
+│   ├── config/          # Configuration and validation
+│   ├── interfaces/      # TypeScript interfaces
+│   ├── services/        # Business logic services
+│   ├── utils/           # Utility functions
+│   ├── BotManager.ts    # Central bot coordinator
+│   ├── claudeCLIClient.ts # Claude CLI wrapper
+│   └── index.ts         # Application entry point
+├── config/              # Configuration files
+├── docs/                # Documentation
+├── scripts/             # Shell scripts
+└── repositories/        # Cloned Git repositories
 ```
 
-### 6. Slackワークスペースにインストール
+## 📖 Documentation
 
-1. Slack APIページでアプリを選択
-2. "Install App" → "Install to Workspace"
-3. 権限を確認して承認
+- [Slack Setup Guide](./docs/SLACK_SETUP.md)
+- [Discord Setup Guide](./docs/DISCORD_SETUP.md)
+- [Repository Feature](./docs/REPOSITORY_FEATURE.md)
+- [Timeout Configuration](./docs/TIMEOUT_LIMITS.md)
+- [Development Guide](./CLAUDE.md)
 
-### 7. Discord Bot作成
+## 🔧 Troubleshooting
 
-1. [Discord Developer Portal](https://discord.com/developers/applications)にアクセス
-2. "New Application"をクリックしてアプリ作成
-3. "Bot"セクションに移動
-4. "Add Bot"をクリック
-5. "Token"セクションで"Copy"をクリックしてトークンを取得
+### Bot Not Responding
+1. Verify environment variables are set correctly
+2. Check Claude CLI is installed: `claude --version`
+3. Review logs: `npm run dev` or check Docker logs
+4. Ensure bot is invited to the channel/server
+5. Check bot permissions in channel/server settings
 
-### 8. Discord Bot権限設定
+### Connection Issues
+- **Slack**: Verify app-level token has `connections:write` scope
+- **Discord**: Check bot token and intents are configured
+- Ensure only one instance is running
 
-1. "OAuth2" → "URL Generator"に移動
-2. Scopes: "bot", "applications.commands"を選択
-3. Bot Permissions:
-   - Send Messages
-   - Read Message History
-   - View Channels
-   - Read Messages/View Messages
-   - Use Slash Commands
-   - Embed Links
-4. 生成されたURLでボットをサーバーに招待
+### Repository Features
+- Verify Git is installed and accessible
+- Check write permissions in `repositories/` directory
+- Ensure repository URL is accessible
 
-## 使用方法
+## 🤝 Contributing
 
-### Slack
+Contributions are welcome! Please:
 
-#### スラッシュコマンド
-```
-/claude TypeScriptでFizzBuzzを書いて
-/claude-code React Hooksの使い方を教えて
-/claude-repo https://github.com/username/repo.git  # リポジトリをクローン
-/claude-repo status                                 # 現在のリポジトリ状態を確認
-/claude-repo delete                                 # リポジトリの紐付けを解除
-```
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests and linting
+5. Submit a pull request
 
-#### メンション
-```
-@ClaudeBot Pythonでファイルを読み込む方法は？
-```
+## 📄 License
 
-#### ダイレクトメッセージ
-ボットとのDMチャンネルで直接メッセージを送信
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-### Discord
+## 🙏 Acknowledgments
 
-#### スラッシュコマンド
-```
-/claude prompt:TypeScriptでFizzBuzzを書いて
-/claude-code prompt:React Hooksの使い方を教えて
-/claude-repo prompt:https://github.com/username/repo.git  # リポジトリをクローン
-/claude-repo prompt:status                                 # 現在のリポジトリ状態を確認
-/claude-repo prompt:delete                                 # リポジトリの紐付けを解除
-```
-
-#### メンション
-```
-@ClaudeBot Pythonでファイルを読み込む方法は？
-```
-
-#### ダイレクトメッセージ
-ボットとのDMで直接メッセージを送信
-
-### リポジトリ連携
-
-チャンネルにリポジトリを紐付けると、そのチャンネルでのすべてのClaude操作がリポジトリのコンテキストで実行されます：
-
-1. **リポジトリをクローン**: `/claude-repo <リポジトリURL>`
-2. **状態確認**: `/claude-repo status`
-3. **紐付け解除**: `/claude-repo delete`
-
-紐付け後は、通常の `/claude` や `/claude-code` コマンドがリポジトリのディレクトリで実行されます。
-
-## トラブルシューティング
-
-- **"Claude Code server is not reachable"エラー**
-  - Claude Codeがローカルで起動しているか確認
-  - `CLAUDE_CODE_URL`が正しいか確認
-  - Dockerの場合: `host.docker.internal:5173`を使用
-
-- **Slackコマンドが反応しない**
-  - Socket Modeが有効になっているか確認
-  - App-Level Tokenが正しく設定されているか確認
-
-- **権限エラー**
-  - Bot Token Scopesが全て設定されているか確認
-  - アプリを再インストール
-
-- **Dockerネットワークエラー**
-  - `docker-compose logs`でエラーを確認
-  - ホストマシンのClaude Codeには`host.docker.internal`を使用
-
-## 開発
-
-```bash
-# TypeScriptファイル変更を監視
-npm run dev
-
-# ビルド
-npm run build
-
-# タイプチェック
-npx tsc --noEmit
-```
+- Built with [Bolt for JavaScript](https://slack.dev/bolt-js) (Slack)
+- Powered by [discord.js](https://discord.js.org/) (Discord)
+- AI assistance by [Claude](https://claude.ai/)

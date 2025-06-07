@@ -1,0 +1,9 @@
+{
+  "app": {
+    "environment": "production"
+  },
+  "logging": {
+    "level": "info",
+    "format": "json"
+  }
+}

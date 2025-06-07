@@ -4,6 +4,9 @@ import { DiscordAdapter } from './adapters/DiscordAdapter';
 import { ClaudeCLIClient } from './claudeCLIClient';
 import { StorageService } from './services/StorageService';
 import { GitService } from './services/GitService';
+import { createLogger } from './utils/logger';
+
+const logger = createLogger('BotManager');
 
 export class BotManager {
   private bots: BotAdapter[] = [];
@@ -60,7 +63,10 @@ export class BotManager {
         });
       };
 
-      const result = await this.claudeClient.sendPrompt(message.text, workingDirectory, onBackgroundComplete);
+      const result = await this.claudeClient.sendPrompt(message.text, {
+        workingDirectory,
+        onBackgroundComplete
+      });
 
       if (result.error) {
         return {
@@ -112,7 +118,10 @@ export class BotManager {
         });
       };
 
-      const result = await this.claudeClient.sendPrompt(message.text, workingDirectory, onBackgroundComplete);
+      const result = await this.claudeClient.sendPrompt(message.text, {
+        workingDirectory,
+        onBackgroundComplete
+      });
 
       if (result.error) {
         return {
@@ -166,7 +175,10 @@ export class BotManager {
 
       // Add code context to the prompt
       const codePrompt = `Please provide a code solution or explanation for: ${message.text}`;
-      const result = await this.claudeClient.sendPrompt(codePrompt, workingDirectory, onBackgroundComplete);
+      const result = await this.claudeClient.sendPrompt(codePrompt, {
+        workingDirectory,
+        onBackgroundComplete
+      });
 
       if (result.error) {
         return {
@@ -298,22 +310,26 @@ export class BotManager {
   }
 
   async startAll(): Promise<void> {
-    console.log('🚀 Starting all bots...');
+    logger.info('Starting all bots');
     
     const isAvailable = await this.claudeClient.checkAvailability();
-    console.log(`🤖 Claude CLI status: ${isAvailable ? '✅ Available' : '❌ Not found'}`);
+    logger.info('Claude CLI availability check', { available: isAvailable });
     
     if (!isAvailable) {
-      console.log('⚠️  Claude CLIが見つかりません。インストールしてください: https://claude.ai/download');
+      logger.warn('Claude CLI not found. Please install from: https://claude.ai/download');
     }
     
     await Promise.all(this.bots.map(bot => bot.start()));
-    console.log(`✅ Started ${this.bots.length} bot(s)`);
+    logger.info('All bots started', { count: this.bots.length });
   }
 
   async stopAll(): Promise<void> {
-    console.log('🛑 Stopping all bots...');
+    logger.info('Stopping all bots');
     await Promise.all(this.bots.map(bot => bot.stop()));
-    console.log(`✅ Stopped ${this.bots.length} bot(s)`);
+    logger.info('All bots stopped', { count: this.bots.length });
+    
+    // クリーンアップ実行
+    this.claudeClient.cleanup();
+    logger.debug('Claude client cleanup completed');
   }
 }
