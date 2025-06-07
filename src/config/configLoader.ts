@@ -43,17 +43,20 @@ export class ConfigLoader {
   ];
 
   private static config: BotConfig = {};
+  private static defaultConfig: any = {};
 
   /**
    * 設定ファイルを読み込む
    */
   static async load(configPath?: string): Promise<BotConfig> {
     // キャッシュされた設定を返す
-    if (this.config && !configPath) {
+    if (this.config && this.defaultConfig && !configPath) {
       return this.config;
     }
 
     try {
+      // Load default configuration from config/default.json
+      await this.loadDefaultConfig();
       let configFile: string | undefined = configPath;
 
       // 設定ファイルのパスが指定されていない場合、デフォルトのファイルを探す
@@ -173,16 +176,42 @@ export class ConfigLoader {
   }
 
   /**
+   * Load default configuration from config/default.json
+   */
+  private static async loadDefaultConfig(): Promise<void> {
+    try {
+      const defaultPath = path.join(process.cwd(), 'config', 'default.json');
+      if (fs.existsSync(defaultPath)) {
+        const content = await fs.promises.readFile(defaultPath, 'utf-8');
+        this.defaultConfig = JSON.parse(content);
+        logger.debug('Default configuration loaded', { file: defaultPath });
+      }
+    } catch (error) {
+      logger.warn('Failed to load default configuration', { error });
+      this.defaultConfig = {};
+    }
+  }
+
+  /**
    * 設定値を取得（環境変数で上書き可能）
    */
   static get<T>(path: string, defaultValue?: T): T {
-    const config = this.config || {};
     const keys = path.split('.');
-    let value: any = config;
-
+    
+    // First check user config
+    let value: any = this.config;
     for (const key of keys) {
       value = value?.[key];
       if (value === undefined) break;
+    }
+    
+    // If not found in user config, check default config
+    if (value === undefined) {
+      value = this.defaultConfig;
+      for (const key of keys) {
+        value = value?.[key];
+        if (value === undefined) break;
+      }
     }
 
     // 環境変数での上書きをチェック

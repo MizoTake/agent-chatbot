@@ -17,8 +17,10 @@ export class BotManager {
   private claudeClient: ClaudeCLIClient;
   private storageService: StorageService;
   private gitService: GitService;
+  private skipPermissionsEnabled: boolean = false;
 
   constructor() {
+    // Initialize with default values first
     this.claudeClient = new ClaudeCLIClient();
     this.storageService = new StorageService();
     this.gitService = new GitService();
@@ -31,6 +33,17 @@ export class BotManager {
     try {
       const config = await ConfigLoader.load();
       logger.info('Configuration loaded successfully');
+      
+      // Read config from default.json and claude-bot.yml
+      const claudeCommand = process.env.CLAUDE_COMMAND || ConfigLoader.get('claude.command', 'claude');
+      const timeout = ConfigLoader.get('claude.timeout', 900000);
+      const maxOutputSize = ConfigLoader.get('claude.maxOutputSize', 10485760);
+      
+      // Reinitialize ClaudeCLIClient with config values
+      this.claudeClient = new ClaudeCLIClient(claudeCommand, timeout, maxOutputSize);
+      
+      // Load skip permissions setting
+      this.skipPermissionsEnabled = ConfigLoader.get('claude.dangerouslySkipPermissions', false);
     } catch (error) {
       logger.error('Failed to load config', error);
     }
@@ -79,9 +92,13 @@ export class BotManager {
         });
       };
 
+      // Get skip permissions setting - use instance variable or config
+      const skipPermissions = this.skipPermissionsEnabled;
+      
       const result = await this.claudeClient.sendPrompt(message.text, {
         workingDirectory,
-        onBackgroundComplete
+        onBackgroundComplete,
+        skipPermissions
       });
 
       if (result.error) {
@@ -134,9 +151,13 @@ export class BotManager {
         });
       };
 
+      // Get skip permissions setting - use instance variable or config
+      const skipPermissions = this.skipPermissionsEnabled;
+      
       const result = await this.claudeClient.sendPrompt(message.text, {
         workingDirectory,
-        onBackgroundComplete
+        onBackgroundComplete,
+        skipPermissions
       });
 
       if (result.error) {
@@ -230,6 +251,56 @@ export class BotManager {
               type: 'mrkdwn',
               text: '✅ 新しい会話を開始できます。\n\n' +
                     '_注: 現在の実装では各メッセージは独立して処理されます。_',
+            },
+          },
+        ],
+      };
+    });
+
+    // Setup /claude-skip-permissions command handler
+    bot.onCommand('claude-skip-permissions', async (message: BotMessage): Promise<BotResponse | null> => {
+      // Toggle skip permissions mode
+      const action = message.text?.trim().toLowerCase();
+      
+      if (action === 'on' || action === 'enable') {
+        this.skipPermissionsEnabled = true;
+      } else if (action === 'off' || action === 'disable') {
+        this.skipPermissionsEnabled = false;
+      } else if (!action || action === '') {
+        // Toggle if no argument provided
+        this.skipPermissionsEnabled = !this.skipPermissionsEnabled;
+      } else {
+        return {
+          text: '❌ 無効なパラメータです',
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: '**使用方法:**\n' +
+                      '• `/claude-skip-permissions` - 現在の設定を切り替え\n' +
+                      '• `/claude-skip-permissions on` - 有効化\n' +
+                      '• `/claude-skip-permissions off` - 無効化',
+              },
+            },
+          ],
+        };
+      }
+      
+      const statusEmoji = this.skipPermissionsEnabled ? '🔓' : '🔒';
+      const statusText = this.skipPermissionsEnabled ? '有効' : '無効';
+      
+      return {
+        text: `${statusEmoji} --dangerously-skip-permissions が${statusText}になりました`,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `**権限スキップモード:** ${statusEmoji} ${statusText}\n\n` +
+                    (this.skipPermissionsEnabled 
+                      ? '⚠️ **警告:** このモードでは、Claudeはファイルシステムへの完全なアクセス権を持ちます。信頼できる環境でのみ使用してください。'
+                      : '✅ 通常モードで動作しています。Claudeは制限された権限で実行されます。'),
             },
           },
         ],

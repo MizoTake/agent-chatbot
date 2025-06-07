@@ -157,6 +157,16 @@ export class DiscordAdapter implements BotAdapter {
           required: true,
         }],
       },
+      {
+        name: 'claude-skip-permissions',
+        description: 'Toggle --dangerously-skip-permissions flag',
+        options: [{
+          name: 'prompt',
+          type: 3, // STRING type
+          description: 'on/enable to turn on, off/disable to turn off, or leave empty to toggle',
+          required: false,
+        }],
+      },
     ];
 
     try {

@@ -24,6 +24,7 @@ interface ClaudeOptions {
   onBackgroundComplete?: BackgroundCallback;
   onStream?: StreamCallback;
   maxOutputSize?: number;
+  skipPermissions?: boolean;
 }
 
 export class ClaudeCLIClient {
@@ -143,18 +144,27 @@ export class ClaudeCLIClient {
       workingDirectory, 
       onBackgroundComplete, 
       onStream,
-      maxOutputSize = this.maxOutputSize 
+      maxOutputSize = this.maxOutputSize,
+      skipPermissions = false
     } = options;
     
     return new Promise((resolve, reject) => {
       logger.debug('Executing Claude command', {
         workingDirectory: workingDirectory || 'current',
         timeout: this.timeout,
-        maxOutputSize
+        maxOutputSize,
+        skipPermissions
       });
 
       // コマンドライン引数を配列として構築（shell: falseの場合エスケープ不要）
-      const args = ['--print', prompt];
+      const args = [];
+      
+      // --dangerously-skip-permissionsフラグを追加（必要な場合）
+      if (skipPermissions) {
+        args.push('--dangerously-skip-permissions');
+      }
+      
+      args.push('--print', prompt);
       
       // セキュリティ向上のためshell: falseを使用
       const claudeProcess = spawn(this.claudeCommand, args, {

@@ -103,6 +103,8 @@ npm start
   - `/claude-help` - コマンドのヘルプを表示
   - `/claude-status` - Claude CLIとリポジトリの状態を確認
   - `/claude-clear` - 会話のコンテキストをクリア
+  - `/claude-skip-permissions` - --dangerously-skip-permissionsフラグの切り替え
+  - `/claude-skip-permissions on/off` - 権限スキップモードの有効化/無効化
 
 ### リポジトリ統合
 
