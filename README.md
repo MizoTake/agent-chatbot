@@ -174,6 +174,9 @@ root権限で実行する場合、`--dangerously-skip-permissions`フラグを�
 # claude-botユーザーをセットアップ
 sudo ./scripts/setup-claude-user.sh
 
+# 認証情報を共有（rootで認証済みの場合）
+sudo ./scripts/share-claude-auth.sh
+
 # または、既存のnobodyユーザー用にセットアップ（非推奨）
 sudo ./scripts/setup-claude-for-nobody.sh
 ```

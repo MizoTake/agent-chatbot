@@ -72,6 +72,22 @@ fi
 echo ""
 echo "Setup complete!"
 echo ""
+
+# Offer to share authentication
+echo "Would you like to share root's Claude authentication with claude-bot? (y/n)"
+read -r SHARE_AUTH
+
+if [[ "$SHARE_AUTH" =~ ^[Yy]$ ]]; then
+    echo "Sharing authentication..."
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -x "$SCRIPT_DIR/share-claude-auth.sh" ]; then
+        "$SCRIPT_DIR/share-claude-auth.sh"
+    else
+        echo "Warning: share-claude-auth.sh not found or not executable"
+    fi
+fi
+
+echo ""
 echo "The bot will now use the 'claude-bot' user instead of 'nobody'."
 echo "You can test it manually with:"
 echo "  sudo -u claude-bot /var/lib/claude-bot/.npm/bin/claude --version"
