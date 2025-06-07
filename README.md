@@ -30,8 +30,8 @@ Claude CLIをSlackとDiscordに統合し、Gitリポジトリのコンテキス�
 
 1. リポジトリをクローン:
    ```bash
-   git clone https://github.com/yourusername/claude-slack-discord-bot.git
-   cd claude-slack-discord-bot
+   git clone https://github.com/MizoTake/claude-chatbot.git
+   cd claude-chatbot
    ```
 
 2. 依存関係をインストール:
@@ -142,7 +142,7 @@ npm start
 ### ファイル構造
 
 ```
-claude-slack-app/
+claude-chatbot/
 ├── src/
 │   ├── adapters/        # プラットフォーム固有のアダプター
 │   ├── config/          # 設定と検証

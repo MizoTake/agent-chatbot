@@ -191,7 +191,7 @@ export class Logger {
 }
 
 // デフォルトロガーのエクスポート
-export const logger = new Logger('claude-slack-app');
+export const logger = new Logger('claude-chatbot');
 
 // 便利なヘルパー関数
 export function createLogger(name: string): Logger {
