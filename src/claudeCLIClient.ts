@@ -170,9 +170,9 @@ export class ClaudeCLIClient {
           command = 'sudo';
           args = ['-u', runAsUser, this.claudeCommand];
         } else {
-          // Default to nobody user
+          // Default to claude-bot user with full path
           command = 'sudo';
-          args = ['-u', 'nobody', this.claudeCommand];
+          args = ['-u', 'claude-bot', '/var/lib/claude-bot/.npm/bin/claude'];
         }
       }
       
@@ -202,11 +202,7 @@ export class ClaudeCLIClient {
       };
       
       // Don't try to drop privileges if using sudo
-      if (command !== 'sudo' && skipPermissions && process.getuid && process.getuid() === 0 && !forceAllowRoot) {
-        // Try to run as nobody user (uid: 65534)
-        spawnOptions.uid = 65534;
-        spawnOptions.gid = 65534;
-      }
+      // (The sudo command will handle the user switch)
       
       const claudeProcess = spawn(command, args, spawnOptions);
 

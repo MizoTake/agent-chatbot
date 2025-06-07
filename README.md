@@ -137,7 +137,7 @@ npm start
 
 **Claude権限設定:**
 - `CLAUDE_FORCE_ALLOW_ROOT`: root権限での--dangerously-skip-permissions使用を許可（true/false）
-- `CLAUDE_RUN_AS_USER`: --dangerously-skip-permissions使用時に実行するユーザー名（デフォルト: nobody）
+- `CLAUDE_RUN_AS_USER`: --dangerously-skip-permissions使用時に実行するユーザー名（デフォルト: claude-bot）
 
 ### ファイル構造
 
@@ -165,6 +165,22 @@ claude-slack-app/
 - [リポジトリ機能](./docs/REPOSITORY_FEATURE.md)
 - [タイムアウト設定](./docs/TIMEOUT_LIMITS.md)
 - [開発ガイド](./CLAUDE.md)
+
+## 🔒 権限設定 (root環境での実行)
+
+root権限で実行する場合、`--dangerously-skip-permissions`フラグを使用するには専用ユーザーのセットアップが必要です：
+
+```bash
+# claude-botユーザーをセットアップ
+sudo ./scripts/setup-claude-user.sh
+
+# または、既存のnobodyユーザー用にセットアップ（非推奨）
+sudo ./scripts/setup-claude-for-nobody.sh
+```
+
+セットアップ後、以下のいずれかの方法で使用：
+- 環境変数: `export CLAUDE_RUN_AS_USER=claude-bot`
+- 強制許可: `export CLAUDE_FORCE_ALLOW_ROOT=true` (セキュリティリスクあり)
 
 ## 🔧 トラブルシューティング
 
