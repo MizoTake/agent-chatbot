@@ -105,6 +105,7 @@ npm start
   - `/claude-clear` - 会話のコンテキストをクリア
   - `/claude-skip-permissions` - --dangerously-skip-permissionsフラグの切り替え
   - `/claude-skip-permissions on/off` - 権限スキップモードの有効化/無効化
+    - ⚠️ **注意**: root権限で実行時は、`CLAUDE_FORCE_ALLOW_ROOT=true`を設定するか、`CLAUDE_RUN_AS_USER`で別ユーザーを指定してください
 
 ### リポジトリ統合
 
@@ -133,6 +134,10 @@ npm start
 - `LOG_LEVEL`: ログレベル（debug/info/warn/error）
 - `LOG_FORMAT`: ログ形式（human/json）
 - `DEBUG`: デバッグ出力を有効化（true/false）
+
+**Claude権限設定:**
+- `CLAUDE_FORCE_ALLOW_ROOT`: root権限での--dangerously-skip-permissions使用を許可（true/false）
+- `CLAUDE_RUN_AS_USER`: --dangerously-skip-permissions使用時に実行するユーザー名（デフォルト: nobody）
 
 ### ファイル構造
 

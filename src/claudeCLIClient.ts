@@ -157,7 +157,24 @@ export class ClaudeCLIClient {
       });
 
       // コマンドライン引数を配列として構築（shell: falseの場合エスケープ不要）
-      const args = [];
+      let command = this.claudeCommand;
+      let args: string[] = [];
+      
+      // Check if we need to run as a different user when using skip permissions
+      const forceAllowRoot = process.env.CLAUDE_FORCE_ALLOW_ROOT === 'true';
+      const runAsUser = process.env.CLAUDE_RUN_AS_USER;
+      
+      if (skipPermissions && process.getuid && process.getuid() === 0 && !forceAllowRoot) {
+        // If root and skip permissions is requested, use sudo to run as different user
+        if (runAsUser) {
+          command = 'sudo';
+          args = ['-u', runAsUser, this.claudeCommand];
+        } else {
+          // Default to nobody user
+          command = 'sudo';
+          args = ['-u', 'nobody', this.claudeCommand];
+        }
+      }
       
       // --dangerously-skip-permissionsフラグを追加（必要な場合）
       if (skipPermissions) {
@@ -167,13 +184,31 @@ export class ClaudeCLIClient {
       args.push('--print', prompt);
       
       // セキュリティ向上のためshell: falseを使用
-      const claudeProcess = spawn(this.claudeCommand, args, {
+      const spawnOptions: any = {
         cwd: workingDirectory ? path.resolve(workingDirectory) : undefined, // パスを絶対パスに変換
         detached: true,
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false, // シェルインジェクションを防ぐ
-        env: { ...process.env, LANG: 'ja_JP.UTF-8', LC_ALL: 'ja_JP.UTF-8' } // UTF-8エンコーディングを強制
-      });
+        env: { 
+          ...process.env, 
+          LANG: 'ja_JP.UTF-8', 
+          LC_ALL: 'ja_JP.UTF-8',
+          // Force non-root execution for --dangerously-skip-permissions
+          ...(skipPermissions && process.env.CLAUDE_FORCE_ALLOW_ROOT !== 'true' ? { 
+            USER: 'claude-bot',
+            HOME: '/tmp/claude-bot'
+          } : {})
+        } // UTF-8エンコーディングを強制
+      };
+      
+      // Don't try to drop privileges if using sudo
+      if (command !== 'sudo' && skipPermissions && process.getuid && process.getuid() === 0 && !forceAllowRoot) {
+        // Try to run as nobody user (uid: 65534)
+        spawnOptions.uid = 65534;
+        spawnOptions.gid = 65534;
+      }
+      
+      const claudeProcess = spawn(command, args, spawnOptions);
 
       let stdout = '';
       let stderr = '';
