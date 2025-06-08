@@ -59,3 +59,11 @@ coverage/
 tmp/
 temp/
 *.tmp
+
+# Claude authentication
+.claude/
+.claude.json
+*.credentials.json
+
+# Local settings
+.claude/settings.local.json
