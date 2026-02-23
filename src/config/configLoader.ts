@@ -54,13 +54,14 @@ export class ConfigLoader {
 
   private static config: BotConfig = {};
   private static defaultConfig: any = {};
+  private static loaded: boolean = false;
 
   /**
    * 設定ファイルを読み込む
    */
   static async load(configPath?: string): Promise<BotConfig> {
-    // キャッシュされた設定を返す
-    if (this.config && this.defaultConfig && !configPath) {
+    // キャッシュ済みの場合のみ返す
+    if (this.loaded && !configPath) {
       return this.config;
     }
 
@@ -77,6 +78,7 @@ export class ConfigLoader {
       if (!configFile) {
         logger.debug('No configuration file found, using defaults');
         this.config = {};
+        this.loaded = true;
         return this.config;
       }
 
@@ -97,11 +99,13 @@ export class ConfigLoader {
       if (this.config) {
         this.validateConfig(this.config);
       }
+      this.loaded = true;
       
       return this.config;
     } catch (error) {
       logger.error('Failed to load configuration', error);
       this.config = {};
+      this.loaded = true;
       return this.config;
     }
   }
@@ -246,6 +250,8 @@ export class ConfigLoader {
    */
   static async reload(): Promise<void> {
     this.config = {};
+    this.defaultConfig = {};
+    this.loaded = false;
     await this.load();
   }
 }
