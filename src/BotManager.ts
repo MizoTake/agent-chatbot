@@ -307,7 +307,7 @@ export class BotManager {
 
     bot.onCommand('claude-help', async (): Promise<BotResponse | null> => {
       return {
-        text: 'Claude Bot ヘルプ',
+        text: 'Agent Chatbot ヘルプ',
         blocks: [
           {
             type: 'section',

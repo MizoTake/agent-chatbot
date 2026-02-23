@@ -49,10 +49,10 @@
 
 ```bash
 # 停止
-./stop.sh
+./scripts/stop.sh
 
 # 再起動
-./start.sh
+./scripts/start.sh
 ```
 
 ## トラブルシューティング

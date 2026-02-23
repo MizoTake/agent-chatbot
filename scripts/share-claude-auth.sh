@@ -1,9 +1,9 @@
 #!/bin/bash
-# Script to share Claude authentication from root to claude-bot user
+# Script to share Claude authentication from root to agent-chatbot user
 
 set -e
 
-echo "Sharing Claude authentication with claude-bot user..."
+echo "Sharing Claude authentication with agent-chatbot user..."
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then 
@@ -11,15 +11,15 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Check if claude-bot user exists
-if ! id "claude-bot" &>/dev/null; then
-    echo "Error: claude-bot user does not exist. Please run setup-claude-user.sh first."
+# Check if agent-chatbot user exists
+if ! id "agent-chatbot" &>/dev/null; then
+    echo "Error: agent-chatbot user does not exist. Please run setup-claude-user.sh first."
     exit 1
 fi
 
-# Claude config directory for claude-bot
-CLAUDE_BOT_HOME="/var/lib/claude-bot"
-CLAUDE_BOT_CONFIG="$CLAUDE_BOT_HOME/.claude"
+# Claude config directory for agent-chatbot
+AGENT_CHATBOT_HOME="/var/lib/agent-chatbot"
+AGENT_CHATBOT_CONFIG="$AGENT_CHATBOT_HOME/.claude"
 
 # Root Claude config directory
 ROOT_CLAUDE_CONFIG="/root/.claude"
@@ -32,56 +32,56 @@ if [ ! -d "$ROOT_CLAUDE_CONFIG" ]; then
     exit 1
 fi
 
-# Create .claude directory for claude-bot
-echo "Creating Claude config directory for claude-bot..."
-mkdir -p "$CLAUDE_BOT_CONFIG"
+# Create .claude directory for agent-chatbot
+echo "Creating Claude config directory for agent-chatbot..."
+mkdir -p "$AGENT_CHATBOT_CONFIG"
 
 # Copy configuration files
 echo "Copying Claude configuration..."
 
 # Copy the entire .claude directory
-cp -r "$ROOT_CLAUDE_CONFIG"/* "$CLAUDE_BOT_CONFIG/" 2>/dev/null || true
+cp -r "$ROOT_CLAUDE_CONFIG"/* "$AGENT_CHATBOT_CONFIG/" 2>/dev/null || true
 
 # Copy .claude.json if it exists
 if [ -f "$ROOT_CLAUDE_JSON" ]; then
-    cp "$ROOT_CLAUDE_JSON" "$CLAUDE_BOT_HOME/.claude.json"
+    cp "$ROOT_CLAUDE_JSON" "$AGENT_CHATBOT_HOME/.claude.json"
 fi
 
 # Special handling for credentials - ensure it exists and has correct permissions
 if [ -f "$ROOT_CLAUDE_CONFIG/.credentials.json" ]; then
-    cp "$ROOT_CLAUDE_CONFIG/.credentials.json" "$CLAUDE_BOT_CONFIG/.credentials.json"
-    chmod 600 "$CLAUDE_BOT_CONFIG/.credentials.json"
+    cp "$ROOT_CLAUDE_CONFIG/.credentials.json" "$AGENT_CHATBOT_CONFIG/.credentials.json"
+    chmod 600 "$AGENT_CHATBOT_CONFIG/.credentials.json"
 fi
 
 # Set correct ownership
-chown -R claude-bot:claude-bot "$CLAUDE_BOT_CONFIG"
-chown -R claude-bot:claude-bot "$CLAUDE_BOT_HOME/.claude.json" 2>/dev/null || true
+chown -R agent-chatbot:agent-chatbot "$AGENT_CHATBOT_CONFIG"
+chown -R agent-chatbot:agent-chatbot "$AGENT_CHATBOT_HOME/.claude.json" 2>/dev/null || true
 
 # Set correct permissions
-chmod 700 "$CLAUDE_BOT_CONFIG"
-find "$CLAUDE_BOT_CONFIG" -type d -exec chmod 700 {} \;
-find "$CLAUDE_BOT_CONFIG" -type f -exec chmod 600 {} \;
+chmod 700 "$AGENT_CHATBOT_CONFIG"
+find "$AGENT_CHATBOT_CONFIG" -type d -exec chmod 700 {} \;
+find "$AGENT_CHATBOT_CONFIG" -type f -exec chmod 600 {} \;
 
 # Test the authentication
 echo ""
-echo "Testing Claude authentication for claude-bot user..."
-if sudo -u claude-bot /var/lib/claude-bot/.npm/bin/claude --version >/dev/null 2>&1; then
+echo "Testing Claude authentication for agent-chatbot user..."
+if sudo -u agent-chatbot /var/lib/agent-chatbot/.npm/bin/claude --version >/dev/null 2>&1; then
     echo "✅ Claude CLI is accessible"
     
     # Try a simple command to verify authentication
-    if echo "Say hello" | sudo -u claude-bot /var/lib/claude-bot/.npm/bin/claude --print >/dev/null 2>&1; then
+    if echo "Say hello" | sudo -u agent-chatbot /var/lib/agent-chatbot/.npm/bin/claude --print >/dev/null 2>&1; then
         echo "✅ Claude authentication is working!"
     else
         echo "⚠️  Claude CLI works but authentication might need attention"
-        echo "The claude-bot user may need to login separately"
+        echo "The agent-chatbot user may need to login separately"
     fi
 else
-    echo "❌ Failed to run Claude CLI as claude-bot user"
+    echo "❌ Failed to run Claude CLI as agent-chatbot user"
 fi
 
 echo ""
 echo "Setup complete!"
 echo ""
 echo "Note: If authentication fails, you may need to:"
-echo "1. Run: sudo -u claude-bot /var/lib/claude-bot/.npm/bin/claude login"
+echo "1. Run: sudo -u agent-chatbot /var/lib/agent-chatbot/.npm/bin/claude login"
 echo "2. Or set ANTHROPIC_API_KEY environment variable"

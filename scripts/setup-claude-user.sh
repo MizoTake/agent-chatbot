@@ -3,7 +3,7 @@
 
 set -e
 
-echo "Setting up dedicated claude-bot user for Claude CLI..."
+echo "Setting up dedicated agent-chatbot user for Claude CLI..."
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then 
@@ -11,19 +11,19 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Create claude-bot user if it doesn't exist
-if ! id "claude-bot" &>/dev/null; then
-    echo "Creating claude-bot user..."
-    useradd -r -s /bin/bash -m -d /var/lib/claude-bot claude-bot
-    echo "✅ Created claude-bot user"
+# Create agent-chatbot user if it doesn't exist
+if ! id "agent-chatbot" &>/dev/null; then
+    echo "Creating agent-chatbot user..."
+    useradd -r -s /bin/bash -m -d /var/lib/agent-chatbot agent-chatbot
+    echo "✅ Created agent-chatbot user"
 else
-    echo "ℹ️  claude-bot user already exists"
+    echo "ℹ️  agent-chatbot user already exists"
 fi
 
 # Ensure home directory exists with correct permissions
-mkdir -p /var/lib/claude-bot
-chown claude-bot:claude-bot /var/lib/claude-bot
-chmod 755 /var/lib/claude-bot
+mkdir -p /var/lib/agent-chatbot
+chown agent-chatbot:agent-chatbot /var/lib/agent-chatbot
+chmod 755 /var/lib/agent-chatbot
 
 # Find Claude binary
 CLAUDE_BINARY=$(which claude 2>/dev/null || echo "")
@@ -35,37 +35,37 @@ fi
 
 echo "Found Claude at: $CLAUDE_BINARY"
 
-# Install Claude for the claude-bot user
-echo "Installing Claude for claude-bot user..."
+# Install Claude for the agent-chatbot user
+echo "Installing Claude for agent-chatbot user..."
 
-# Create .npm directory for claude-bot
-sudo -u claude-bot mkdir -p /var/lib/claude-bot/.npm
-sudo -u claude-bot npm config set prefix /var/lib/claude-bot/.npm
+# Create .npm directory for agent-chatbot
+sudo -u agent-chatbot mkdir -p /var/lib/agent-chatbot/.npm
+sudo -u agent-chatbot npm config set prefix /var/lib/agent-chatbot/.npm
 
-# Install Claude CLI for claude-bot user
-echo "Installing Claude CLI globally for claude-bot user..."
-sudo -u claude-bot npm install -g @anthropic-ai/claude-code
+# Install Claude CLI for agent-chatbot user
+echo "Installing Claude CLI globally for agent-chatbot user..."
+sudo -u agent-chatbot npm install -g @anthropic-ai/claude-code
 
-# Add npm bin to claude-bot's PATH
-echo 'export PATH="/var/lib/claude-bot/.npm/bin:$PATH"' >> /var/lib/claude-bot/.bashrc
+# Add npm bin to agent-chatbot's PATH
+echo 'export PATH="/var/lib/agent-chatbot/.npm/bin:$PATH"' >> /var/lib/agent-chatbot/.bashrc
 
 # Create a wrapper script for easy access
-cat > /usr/local/bin/claude-bot << 'EOF'
+cat > /usr/local/bin/agent-chatbot << 'EOF'
 #!/bin/bash
-# Wrapper to run Claude as claude-bot user
-export PATH="/var/lib/claude-bot/.npm/bin:$PATH"
-exec sudo -u claude-bot /var/lib/claude-bot/.npm/bin/claude "$@"
+# Wrapper to run Claude as agent-chatbot user
+export PATH="/var/lib/agent-chatbot/.npm/bin:$PATH"
+exec sudo -u agent-chatbot /var/lib/agent-chatbot/.npm/bin/claude "$@"
 EOF
 
-chmod 755 /usr/local/bin/claude-bot
+chmod 755 /usr/local/bin/agent-chatbot
 
 # Test the installation
 echo ""
-echo "Testing Claude installation for claude-bot user..."
-if sudo -u claude-bot bash -c 'export PATH="/var/lib/claude-bot/.npm/bin:$PATH"; claude --version' >/dev/null 2>&1; then
-    echo "✅ Success! claude-bot user can run Claude."
+echo "Testing Claude installation for agent-chatbot user..."
+if sudo -u agent-chatbot bash -c 'export PATH="/var/lib/agent-chatbot/.npm/bin:$PATH"; claude --version' >/dev/null 2>&1; then
+    echo "✅ Success! agent-chatbot user can run Claude."
 else
-    echo "❌ Failed to setup Claude for claude-bot user."
+    echo "❌ Failed to setup Claude for agent-chatbot user."
     exit 1
 fi
 
@@ -74,7 +74,7 @@ echo "Setup complete!"
 echo ""
 
 # Offer to share authentication
-echo "Would you like to share root's Claude authentication with claude-bot? (y/n)"
+echo "Would you like to share root's Claude authentication with agent-chatbot? (y/n)"
 read -r SHARE_AUTH
 
 if [[ "$SHARE_AUTH" =~ ^[Yy]$ ]]; then
@@ -88,10 +88,10 @@ if [[ "$SHARE_AUTH" =~ ^[Yy]$ ]]; then
 fi
 
 echo ""
-echo "The bot will now use the 'claude-bot' user instead of 'nobody'."
+echo "The bot will now use the 'agent-chatbot' user instead of 'nobody'."
 echo "You can test it manually with:"
-echo "  sudo -u claude-bot /var/lib/claude-bot/.npm/bin/claude --version"
-echo "  or simply: claude-bot --version"
+echo "  sudo -u agent-chatbot /var/lib/agent-chatbot/.npm/bin/claude --version"
+echo "  or simply: agent-chatbot --version"
 echo ""
 echo "Update your environment variable:"
-echo "  export CLAUDE_RUN_AS_USER=claude-bot"
+echo "  export CLAUDE_RUN_AS_USER=agent-chatbot"

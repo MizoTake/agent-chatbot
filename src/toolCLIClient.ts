@@ -247,7 +247,7 @@ export class ToolCLIClient {
           args = ['-u', runAsUser, tool.command, ...args];
         } else {
           command = 'sudo';
-          args = ['-u', 'claude-bot', tool.command, ...args];
+          args = ['-u', 'agent-chatbot', tool.command, ...args];
         }
       }
 
@@ -265,7 +265,7 @@ export class ToolCLIClient {
           LANG: 'ja_JP.UTF-8',
           LC_ALL: 'ja_JP.UTF-8',
           ...(canSkipPermissions && process.env.CLAUDE_FORCE_ALLOW_ROOT !== 'true'
-            ? { USER: 'claude-bot', HOME: '/tmp/claude-bot' }
+            ? { USER: 'agent-chatbot', HOME: '/tmp/agent-chatbot' }
             : {})
         }
       };

@@ -1,5 +1,5 @@
-# Claude Bot 設定ファイルサンプル
-# このファイルを claude-bot.yml としてコピーして使用してください
+# Agent Chatbot 設定ファイルサンプル
+# このファイルを agent-chatbot.yml としてコピーして使用してください
 
 # デフォルト設定
 defaults:

@@ -170,9 +170,9 @@ export class ClaudeCLIClient {
           command = 'sudo';
           args = ['-u', runAsUser, this.claudeCommand];
         } else {
-          // Default to claude-bot user with full path
+          // Default to agent-chatbot user with full path
           command = 'sudo';
-          args = ['-u', 'claude-bot', '/var/lib/claude-bot/.npm/bin/claude'];
+          args = ['-u', 'agent-chatbot', '/var/lib/agent-chatbot/.npm/bin/claude'];
         }
       }
       
@@ -195,8 +195,8 @@ export class ClaudeCLIClient {
           LC_ALL: 'ja_JP.UTF-8',
           // Force non-root execution for --dangerously-skip-permissions
           ...(skipPermissions && process.env.CLAUDE_FORCE_ALLOW_ROOT !== 'true' ? { 
-            USER: 'claude-bot',
-            HOME: '/tmp/claude-bot'
+            USER: 'agent-chatbot',
+            HOME: '/tmp/agent-chatbot'
           } : {})
         } // UTF-8エンコーディングを強制
       };

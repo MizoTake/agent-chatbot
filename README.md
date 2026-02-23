@@ -30,8 +30,8 @@ Claude CLIをSlackとDiscordに統合し、Gitリポジトリのコンテキス�
 
 1. リポジトリをクローン:
    ```bash
-   git clone https://github.com/MizoTake/claude-chatbot.git
-   cd claude-chatbot
+   git clone https://github.com/MizoTake/agent-chatbot.git
+   cd agent-chatbot
    ```
 
 2. 依存関係をインストール:
@@ -147,12 +147,12 @@ npm start
 
 **Claude権限設定:**
 - `CLAUDE_FORCE_ALLOW_ROOT`: root権限での--dangerously-skip-permissions使用を許可（true/false）
-- `CLAUDE_RUN_AS_USER`: --dangerously-skip-permissions使用時に実行するユーザー名（デフォルト: claude-bot）
+- `CLAUDE_RUN_AS_USER`: --dangerously-skip-permissions使用時に実行するユーザー名（デフォルト: agent-chatbot）
 
 ### ファイル構造
 
 ```
-claude-chatbot/
+agent-chatbot/
 ├── src/
 │   ├── adapters/        # プラットフォーム固有のアダプター
 │   ├── config/          # 設定と検証
@@ -170,7 +170,7 @@ claude-chatbot/
 
 ### 追加ツールの設定例
 
-`claude-bot.yml` の `tools.definitions` にCLI定義を追加すると、Claude/Codex以外のツールも利用できます。
+`agent-chatbot.yml` の `tools.definitions` にCLI定義を追加すると、Claude/Codex以外のツールも利用できます。
 
 ```yaml
 tools:
@@ -198,7 +198,7 @@ tools:
 root権限で実行する場合、`--dangerously-skip-permissions`フラグを使用するには専用ユーザーのセットアップが必要です：
 
 ```bash
-# claude-botユーザーをセットアップ
+# agent-chatbotユーザーをセットアップ
 sudo ./scripts/setup-claude-user.sh
 
 # 認証情報を共有（rootで認証済みの場合）
@@ -209,7 +209,7 @@ sudo ./scripts/setup-claude-for-nobody.sh
 ```
 
 セットアップ後、以下のいずれかの方法で使用：
-- 環境変数: `export CLAUDE_RUN_AS_USER=claude-bot`
+- 環境変数: `export CLAUDE_RUN_AS_USER=agent-chatbot`
 - 強制許可: `export CLAUDE_FORCE_ALLOW_ROOT=true` (セキュリティリスクあり)
 
 ## 🔧 トラブルシューティング
@@ -236,7 +236,7 @@ sudo ./scripts/setup-claude-for-nobody.sh
 このプロジェクトの改善提案については[IMPROVEMENT_PROPOSALS.md](IMPROVEMENT_PROPOSALS.md)を参照してください。
 
 主な改善予定：
-- 🧪 テスト基盤の構築
+- 🧪 テスト基盤の拡充
 - 💾 会話履歴の永続化
 - 🔌 プラグインシステム
 - 📊 メトリクスとダッシュボード

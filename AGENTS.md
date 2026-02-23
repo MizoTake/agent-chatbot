@@ -36,5 +36,5 @@
 
 ## Security & Configuration Tips
 - Do not commit secrets or local runtime data (`.env`, `.claude/`, `channel-repos.json`, `repositories/`).
-- Start from `.env.example` and `claude-bot.yml.example` for local setup.
+- Start from `.env.example` and `agent-chatbot.yml.example` for local setup.
 - Validate token/config changes before deploy; startup fails fast when environment validation fails.

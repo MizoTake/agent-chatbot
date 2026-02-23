@@ -44,12 +44,12 @@ export interface BotConfig {
 
 export class ConfigLoader {
   private static readonly CONFIG_FILES = [
-    'claude-bot.yml',
-    'claude-bot.yaml',
-    'claude-bot.json',
-    '.claude-bot.yml',
-    '.claude-bot.yaml',
-    '.claude-bot.json'
+    'agent-chatbot.yml',
+    'agent-chatbot.yaml',
+    'agent-chatbot.json',
+    '.agent-chatbot.yml',
+    '.agent-chatbot.yaml',
+    '.agent-chatbot.json'
   ];
 
   private static config: BotConfig = {};
@@ -225,7 +225,7 @@ export class ConfigLoader {
     }
 
     // 環境変数での上書きをチェック
-    const envKey = `CLAUDE_BOT_${path.toUpperCase().replace(/\./g, '_')}`;
+    const envKey = `AGENT_CHATBOT_${path.toUpperCase().replace(/\./g, '_')}`;
     const envValue = process.env[envKey];
     
     if (envValue !== undefined) {

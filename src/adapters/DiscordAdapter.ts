@@ -137,7 +137,7 @@ export class DiscordAdapter implements BotAdapter {
       },
       {
         name: 'claude-help',
-        description: 'Claude Botのヘルプを表示',
+        description: 'Agent Chatbotのヘルプを表示',
       },
       {
         name: 'claude-status',
