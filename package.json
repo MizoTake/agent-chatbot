@@ -8,6 +8,7 @@
     "build": "node ./node_modules/typescript/bin/tsc",
     "clean": "rm -rf dist",
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
+    "check": "npm run typecheck && npm test",
     "test": "npm run build && node --test \"dist/**/*.test.js\""
   },
   "keywords": ["claude", "slack", "discord", "bot", "ai", "assistant"],
