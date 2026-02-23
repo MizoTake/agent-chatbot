@@ -66,3 +66,33 @@ commands:
     ai: claude
     # 例: "/git" を "/claude-repo" にマップ
     git: claude-repo
+
+# ツール実行設定（Claude/Codex以外も追加可能）
+tools:
+  # 未指定時に使うツール
+  defaultTool: claude
+
+  # CLIツール定義
+  # {prompt} はユーザー入力で置換されます
+  # args/versionArgs は各CLI仕様に合わせて調整してください
+  definitions:
+    claude:
+      command: claude
+      args: ["--print", "{prompt}"]
+      versionArgs: ["--version"]
+      description: Anthropic Claude CLI
+      supportsSkipPermissions: true
+
+    # 例: Gemini CLI
+    gemini:
+      command: gemini
+      args: ["chat", "--prompt", "{prompt}"]
+      versionArgs: ["--version"]
+      description: Google Gemini CLI
+
+    # 例: Aider
+    aider:
+      command: aider
+      args: ["--message", "{prompt}"]
+      versionArgs: ["--version"]
+      description: Aider CLI

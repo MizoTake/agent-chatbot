@@ -52,10 +52,10 @@ This is a multi-platform bot application that connects Slack and Discord to a lo
    - Both implement the common `BotAdapter` interface for consistency
    - Support for `/claude-repo` command for repository management
 
-4. **Claude Code Client (`src/claudeCodeClient.ts`)**
-   - Abstraction layer for communicating with Claude Code CLI
-   - Executes Claude commands via shell with optional working directory support
-   - Default 60-second timeout for operations
+4. **Tool CLI Client (`src/toolCLIClient.ts`)**
+   - Abstraction layer for communicating with CLI tools (Claude as default)
+   - Executes tool commands via shell with optional working directory support
+   - Supports per-channel/default tool selection (`/claude-tool`)
    - Supports repository context by setting working directory
 
 5. **Storage Service (`src/services/StorageService.ts`)**

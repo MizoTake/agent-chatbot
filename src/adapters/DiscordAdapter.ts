@@ -167,6 +167,16 @@ export class DiscordAdapter implements BotAdapter {
           required: false,
         }],
       },
+      {
+        name: 'claude-tool',
+        description: '利用ツールの表示・切替 (list/status/use/clear)',
+        options: [{
+          name: 'prompt',
+          type: 3, // STRING type
+          description: '例: list / status / use gemini / clear',
+          required: false,
+        }],
+      },
     ];
 
     try {

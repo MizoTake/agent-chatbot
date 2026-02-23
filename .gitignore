@@ -38,6 +38,7 @@ pids/
 
 # Storage
 channel-repos.json
+channel-tools.json
 repositories/
 
 # Configuration

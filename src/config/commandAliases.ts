@@ -38,6 +38,11 @@ export const COMMAND_ALIASES: CommandAlias[] = [
     alias: 'csp',
     command: 'claude-skip-permissions',
     description: '/claude-skip-permissionsの短縮形'
+  },
+  {
+    alias: 'ct',
+    command: 'claude-tool',
+    description: '/claude-toolの短縮形'
   }
 ];
 

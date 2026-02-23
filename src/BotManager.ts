@@ -1,48 +1,62 @@
 import { BotAdapter, BotMessage, BotResponse } from './interfaces/BotInterface';
 import { SlackAdapter } from './adapters/SlackAdapter';
 import { DiscordAdapter } from './adapters/DiscordAdapter';
-import { ClaudeCLIClient } from './claudeCLIClient';
+import { ToolCLIClient, ToolConfig } from './toolCLIClient';
 import { StorageService } from './services/StorageService';
+import { ToolPreferenceService } from './services/ToolPreferenceService';
 import { GitService } from './services/GitService';
 import { createLogger } from './utils/logger';
-import { ErrorMessages } from './utils/errorMessages';
-import { ProgressIndicator } from './utils/progressIndicator';
-import { resolveCommandAlias } from './config/commandAliases';
 import { ConfigLoader } from './config/configLoader';
 
 const logger = createLogger('BotManager');
 
+interface ParsedPrompt {
+  prompt: string;
+  toolOverride?: string;
+  error?: string;
+}
+
 export class BotManager {
   private bots: BotAdapter[] = [];
-  private claudeClient: ClaudeCLIClient;
+  private toolClient: ToolCLIClient;
   private storageService: StorageService;
+  private toolPreferenceService: ToolPreferenceService;
   private gitService: GitService;
   private skipPermissionsEnabled: boolean = false;
 
   constructor() {
-    // Initialize with default values first
-    this.claudeClient = new ClaudeCLIClient();
+    this.toolClient = new ToolCLIClient();
     this.storageService = new StorageService();
+    this.toolPreferenceService = new ToolPreferenceService();
     this.gitService = new GitService();
-    
-    // 設定を非同期で読み込む
+
     this.loadConfig();
   }
-  
+
   private async loadConfig(): Promise<void> {
     try {
-      const config = await ConfigLoader.load();
+      await ConfigLoader.load();
       logger.info('Configuration loaded successfully');
-      
-      // Read config from default.json and claude-bot.yml
+
       const claudeCommand = process.env.CLAUDE_COMMAND || ConfigLoader.get('claude.command', 'claude');
       const timeout = ConfigLoader.get('claude.timeout', 900000);
       const maxOutputSize = ConfigLoader.get('claude.maxOutputSize', 10485760);
-      
-      // Reinitialize ClaudeCLIClient with config values
-      this.claudeClient = new ClaudeCLIClient(claudeCommand, timeout, maxOutputSize);
-      
-      // Load skip permissions setting
+
+      const configuredTools = ConfigLoader.get<Record<string, ToolConfig>>('tools.definitions', {});
+      const mergedTools: Record<string, ToolConfig> = {
+        claude: {
+          command: claudeCommand,
+          args: ['--print', '{prompt}'],
+          versionArgs: ['--version'],
+          description: 'Anthropic Claude CLI',
+          supportsSkipPermissions: true
+        },
+        ...configuredTools
+      };
+
+      const defaultTool = ConfigLoader.get('tools.defaultTool', 'claude');
+      this.toolClient = new ToolCLIClient(mergedTools, defaultTool, timeout, maxOutputSize);
+
       this.skipPermissionsEnabled = ConfigLoader.get('claude.dangerouslySkipPermissions', false);
     } catch (error) {
       logger.error('Failed to load config', error);
@@ -61,127 +75,237 @@ export class BotManager {
     this.bots.push(discordBot);
   }
 
+  private parsePrompt(text: string): ParsedPrompt {
+    const trimmed = text.trim();
+    if (!trimmed) {
+      return { prompt: '', error: 'プロンプトを入力してください。' };
+    }
+
+    const match = trimmed.match(/^--tool(?:=|\s+)([a-zA-Z0-9._-]+)\s*([\s\S]*)$/);
+    if (!match) {
+      return { prompt: trimmed };
+    }
+
+    const toolOverride = match[1];
+    const prompt = match[2]?.trim();
+
+    if (!prompt) {
+      return {
+        prompt: '',
+        error: '`--tool` 指定時はプロンプトも入力してください。例: `/claude --tool gemini 修正案を出して`'
+      };
+    }
+
+    return { prompt, toolOverride };
+  }
+
+  private getEffectiveToolName(channelId: string, requestTool?: string): string {
+    if (requestTool) {
+      return requestTool;
+    }
+
+    const channelTool = this.toolPreferenceService.getChannelTool(channelId)?.toolName;
+    if (channelTool && this.toolClient.hasTool(channelTool)) {
+      return channelTool;
+    }
+
+    return this.toolClient.getDefaultToolName();
+  }
+
+  private getToolNames(): string[] {
+    return this.toolClient.listTools().map(tool => tool.name);
+  }
+
+  private getUnknownToolResponse(toolName: string): BotResponse {
+    const available = this.getToolNames();
+    return {
+      text: `❌ 未対応ツール: ${toolName}`,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `❌ 未対応ツール: \`${toolName}\`\n\n` +
+              `利用可能: ${available.map(name => `\`${name}\``).join(', ')}`
+          }
+        }
+      ]
+    };
+  }
+
+  private async handlePromptRequest(
+    bot: BotAdapter,
+    message: BotMessage,
+    showToolPrefix: boolean
+  ): Promise<BotResponse | null> {
+    const parsed = this.parsePrompt(message.text);
+    if (parsed.error) {
+      return { text: `❌ ${parsed.error}` };
+    }
+
+    if (parsed.toolOverride && !this.toolClient.hasTool(parsed.toolOverride)) {
+      return this.getUnknownToolResponse(parsed.toolOverride);
+    }
+
+    const toolName = this.getEffectiveToolName(message.channelId, parsed.toolOverride);
+    const repo = this.storageService.getChannelRepository(message.channelId);
+    const workingDirectory = repo?.localPath;
+
+    const onBackgroundComplete = async (bgResult: any) => {
+      await bot.sendMessage(message.channelId, {
+        text: '✅ バックグラウンド処理が完了しました',
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: bgResult.error
+                ? `❌ [${toolName}] バックグラウンド処理でエラーが発生しました:\n${bgResult.error}`
+                : `✅ [${toolName}] バックグラウンド処理が完了しました:\n${bgResult.response}`
+            }
+          }
+        ]
+      });
+    };
+
+    const result = await this.toolClient.sendPrompt(parsed.prompt, {
+      workingDirectory,
+      onBackgroundComplete,
+      skipPermissions: this.skipPermissionsEnabled,
+      toolName
+    });
+
+    if (result.error) {
+      return {
+        text: `❌ [${toolName}] ${result.error}`
+      };
+    }
+
+    const body = showToolPrefix ? `*${toolName} says:*\n${result.response}` : result.response;
+
+    return {
+      text: result.response,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: body
+          }
+        }
+      ]
+    };
+  }
+
   private setupBot(bot: BotAdapter): void {
-    // Setup message handler for mentions and DMs
     bot.onMessage(async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text) {
         return {
-          text: '👋 Hi! How can I help you? Just send me your question.',
+          text: '👋 Hi! How can I help you? Just send me your question.'
         };
       }
 
-      // Check if channel has a repository configured
-      const repo = this.storageService.getChannelRepository(message.channelId);
-      const workingDirectory = repo?.localPath;
-
-      // バックグラウンド完了時のコールバック
-      const onBackgroundComplete = async (bgResult: any) => {
-        await bot.sendMessage(message.channelId, {
-          text: '✅ バックグラウンド処理が完了しました',
-          blocks: [
-            {
-              type: 'section',
-              text: {
-                type: 'mrkdwn',
-                text: bgResult.error 
-                  ? `❌ バックグラウンド処理でエラーが発生しました:\n${bgResult.error}`
-                  : `✅ バックグラウンド処理が完了しました:\n${bgResult.response}`,
-              },
-            },
-          ],
-        });
-      };
-
-      // Get skip permissions setting - use instance variable or config
-      const skipPermissions = this.skipPermissionsEnabled;
-      
-      const result = await this.claudeClient.sendPrompt(message.text, {
-        workingDirectory,
-        onBackgroundComplete,
-        skipPermissions
-      });
-
-      if (result.error) {
-        return {
-          text: `❌ Error: ${result.error}`,
-        };
-      }
-
-      return {
-        text: result.response,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: result.response,
-            },
-          },
-        ],
-      };
+      return this.handlePromptRequest(bot, message, false);
     });
 
-    // Setup /claude command handler
     bot.onCommand('claude', async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text) {
         return {
-          text: '📝 Please provide a prompt. Usage: `/claude <your prompt>`',
+          text: '📝 Please provide a prompt. Usage: `/claude <your prompt>` or `/claude --tool <tool> <your prompt>`'
         };
       }
 
-      // Check if channel has a repository configured
-      const repo = this.storageService.getChannelRepository(message.channelId);
-      const workingDirectory = repo?.localPath;
+      return this.handlePromptRequest(bot, message, true);
+    });
 
-      // バックグラウンド完了時のコールバック
-      const onBackgroundComplete = async (bgResult: any) => {
-        await bot.sendMessage(message.channelId, {
-          text: '✅ バックグラウンド処理が完了しました',
+    bot.onCommand('claude-tool', async (message: BotMessage): Promise<BotResponse | null> => {
+      const input = message.text?.trim() || 'status';
+      const [action, value] = input.split(/\s+/, 2);
+      const availableTools = this.toolClient.listTools();
+      const currentTool = this.getEffectiveToolName(message.channelId);
+      const channelTool = this.toolPreferenceService.getChannelTool(message.channelId)?.toolName;
+
+      if (action === 'list') {
+        const statuses = await Promise.all(
+          availableTools.map(async (tool) => ({
+            tool,
+            available: await this.toolClient.checkAvailability(tool.name)
+          }))
+        );
+
+        const lines = statuses.map(({ tool, available }) =>
+          `• \`${tool.name}\` (${available ? '✅ 利用可能' : '❌ 未検出'}) - command: \`${tool.command}\``
+        );
+
+        return {
+          text: '利用可能なツール一覧',
           blocks: [
             {
               type: 'section',
               text: {
                 type: 'mrkdwn',
-                text: bgResult.error 
-                  ? `❌ バックグラウンド処理でエラーが発生しました:\n${bgResult.error}`
-                  : `✅ バックグラウンド処理が完了しました:\n${bgResult.response}`,
-              },
-            },
-          ],
-        });
-      };
+                text: `*利用可能なツール*\n\n${lines.join('\n')}`
+              }
+            }
+          ]
+        };
+      }
 
-      // Get skip permissions setting - use instance variable or config
-      const skipPermissions = this.skipPermissionsEnabled;
-      
-      const result = await this.claudeClient.sendPrompt(message.text, {
-        workingDirectory,
-        onBackgroundComplete,
-        skipPermissions
-      });
-
-      if (result.error) {
+      if (action === 'status') {
+        const currentAvailable = await this.toolClient.checkAvailability(currentTool);
+        const defaultTool = this.toolClient.getDefaultToolName();
         return {
-          text: `❌ Error: ${result.error}`,
+          text: 'ツール設定ステータス',
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text:
+                  `*現在の有効ツール:* \`${currentTool}\` (${currentAvailable ? '✅ 利用可能' : '❌ 未検出'})\n` +
+                  `*チャンネル固定ツール:* ${channelTool ? `\`${channelTool}\`` : '未設定'}\n` +
+                  `*デフォルトツール:* \`${defaultTool}\`\n` +
+                  `*利用可能候補:* ${availableTools.map(tool => `\`${tool.name}\``).join(', ')}`
+              }
+            }
+          ]
+        };
+      }
+
+      if (action === 'use') {
+        if (!value) {
+          return {
+            text: '❌ 使用するツール名を指定してください。例: `/claude-tool use gemini`'
+          };
+        }
+
+        if (!this.toolClient.hasTool(value)) {
+          return this.getUnknownToolResponse(value);
+        }
+
+        this.toolPreferenceService.setChannelTool(message.channelId, value);
+        return {
+          text: `✅ このチャンネルの既定ツールを \`${value}\` に設定しました`
+        };
+      }
+
+      if (action === 'clear') {
+        const cleared = this.toolPreferenceService.clearChannelTool(message.channelId);
+        return {
+          text: cleared
+            ? '✅ チャンネル固定ツール設定を削除しました（デフォルトに戻りました）'
+            : 'ℹ️ チャンネル固定ツールは設定されていません'
         };
       }
 
       return {
-        text: result.response,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `*Claude says:*\n${result.response}`,
-            },
-          },
-        ],
+        text:
+          '❌ 無効なサブコマンドです。\n' +
+          '使用方法: `/claude-tool status` `/claude-tool list` `/claude-tool use <tool>` `/claude-tool clear`'
       };
     });
 
-    // Setup /claude-help command handler
-    bot.onCommand('claude-help', async (message: BotMessage): Promise<BotResponse | null> => {
+    bot.onCommand('claude-help', async (): Promise<BotResponse | null> => {
       return {
         text: 'Claude Bot ヘルプ',
         blocks: [
@@ -190,40 +314,40 @@ export class BotManager {
             text: {
               type: 'mrkdwn',
               text: '*利用可能なコマンド:*\n\n' +
-                    '• `/claude <プロンプト>` - Claudeに質問やタスクを送信\n' +
-                    '• `/claude-repo <URL>` - Gitリポジトリをクローンしてチャンネルにリンク\n' +
-                    '• `/claude-repo status` - 現在のリポジトリ状態を確認\n' +
-                    '• `/claude-repo delete` - このチャンネルのリポジトリリンクを削除\n' +
-                    '• `/claude-repo reset` - すべてのリポジトリリンクをリセット\n' +
-                    '• `/claude-status` - Claude CLIの状態を確認\n' +
-                    '• `/claude-clear` - 会話のコンテキストをクリア\n' +
-                    '• `/claude-help` - このヘルプを表示\n\n' +
-                    '*その他の使い方:*\n' +
-                    '• ボットに直接メッセージを送信\n' +
-                    '• チャンネルでボットをメンション (@ボット名)\n\n' +
-                    '*リポジトリ連携:*\n' +
-                    'リポジトリをリンクすると、Claudeはそのリポジトリのコードコンテキストで応答します。',
-            },
-          },
-        ],
+                '• `/claude <プロンプト>` - 現在の既定ツールで実行\n' +
+                '• `/claude --tool <name> <プロンプト>` - 1回だけツールを切り替えて実行\n' +
+                '• `/claude-tool status` - 現在の有効ツールを表示\n' +
+                '• `/claude-tool list` - 設定済みツール一覧とCLI検出状態を表示\n' +
+                '• `/claude-tool use <name>` - このチャンネルの既定ツールを設定\n' +
+                '• `/claude-tool clear` - チャンネル既定を解除（全体既定へ）\n' +
+                '• `/claude-repo <URL>` - Gitリポジトリをクローンしてチャンネルにリンク\n' +
+                '• `/claude-repo status` - 現在のリポジトリ状態を確認\n' +
+                '• `/claude-repo delete` - このチャンネルのリポジトリリンクを削除\n' +
+                '• `/claude-repo reset` - すべてのリポジトリリンクをリセット\n' +
+                '• `/claude-status` - ツールCLIとリポジトリの状態を確認\n' +
+                '• `/claude-clear` - 会話のコンテキストをクリア\n' +
+                '• `/claude-help` - このヘルプを表示\n'
+            }
+          }
+        ]
       };
     });
 
-    // Setup /claude-status command handler
     bot.onCommand('claude-status', async (message: BotMessage): Promise<BotResponse | null> => {
-      const isAvailable = await this.claudeClient.checkAvailability();
+      const currentTool = this.getEffectiveToolName(message.channelId);
+      const isAvailable = await this.toolClient.checkAvailability(currentTool);
       const repo = this.storageService.getChannelRepository(message.channelId);
-      
-      let statusText = `*Claude CLI:* ${isAvailable ? '✅ 利用可能' : '❌ 利用不可'}\n`;
+
+      let statusText = `*有効ツール:* \`${currentTool}\` ${isAvailable ? '✅ 利用可能' : '❌ 利用不可'}\n`;
       statusText += `*チャンネルID:* ${message.channelId}\n`;
-      
+
       if (repo) {
         statusText += `*リンクされたリポジトリ:* ${repo.repositoryUrl}\n`;
         statusText += `*リポジトリパス:* ${repo.localPath}`;
       } else {
-        statusText += `*リンクされたリポジトリ:* なし`;
+        statusText += '*リンクされたリポジトリ:* なし';
       }
-      
+
       return {
         text: 'システムステータス',
         blocks: [
@@ -231,17 +355,14 @@ export class BotManager {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: statusText,
-            },
-          },
-        ],
+              text: statusText
+            }
+          }
+        ]
       };
     });
 
-    // Setup /claude-clear command handler
-    bot.onCommand('claude-clear', async (message: BotMessage): Promise<BotResponse | null> => {
-      // 注: 現在の実装ではClaude CLIは状態を保持していないため、
-      // このコマンドは将来の拡張用のプレースホルダーです
+    bot.onCommand('claude-clear', async (): Promise<BotResponse | null> => {
       return {
         text: '🧹 会話コンテキストをクリアしました',
         blocks: [
@@ -250,24 +371,21 @@ export class BotManager {
             text: {
               type: 'mrkdwn',
               text: '✅ 新しい会話を開始できます。\n\n' +
-                    '_注: 現在の実装では各メッセージは独立して処理されます。_',
-            },
-          },
-        ],
+                '_注: 現在の実装では各メッセージは独立して処理されます。_'
+            }
+          }
+        ]
       };
     });
 
-    // Setup /claude-skip-permissions command handler
     bot.onCommand('claude-skip-permissions', async (message: BotMessage): Promise<BotResponse | null> => {
-      // Toggle skip permissions mode
       const action = message.text?.trim().toLowerCase();
-      
+
       if (action === 'on' || action === 'enable') {
         this.skipPermissionsEnabled = true;
       } else if (action === 'off' || action === 'disable') {
         this.skipPermissionsEnabled = false;
       } else if (!action || action === '') {
-        // Toggle if no argument provided
         this.skipPermissionsEnabled = !this.skipPermissionsEnabled;
       } else {
         return {
@@ -278,18 +396,18 @@ export class BotManager {
               text: {
                 type: 'mrkdwn',
                 text: '**使用方法:**\n' +
-                      '• `/claude-skip-permissions` - 現在の設定を切り替え\n' +
-                      '• `/claude-skip-permissions on` - 有効化\n' +
-                      '• `/claude-skip-permissions off` - 無効化',
-              },
-            },
-          ],
+                  '• `/claude-skip-permissions` - 現在の設定を切り替え\n' +
+                  '• `/claude-skip-permissions on` - 有効化\n' +
+                  '• `/claude-skip-permissions off` - 無効化'
+              }
+            }
+          ]
         };
       }
-      
+
       const statusEmoji = this.skipPermissionsEnabled ? '🔓' : '🔒';
       const statusText = this.skipPermissionsEnabled ? '有効' : '無効';
-      
+
       return {
         text: `${statusEmoji} --dangerously-skip-permissions が${statusText}になりました`,
         blocks: [
@@ -298,16 +416,15 @@ export class BotManager {
             text: {
               type: 'mrkdwn',
               text: `**権限スキップモード:** ${statusEmoji} ${statusText}\n\n` +
-                    (this.skipPermissionsEnabled 
-                      ? '⚠️ **警告:** このモードでは、Claudeはファイルシステムへの完全なアクセス権を持ちます。信頼できる環境でのみ使用してください。'
-                      : '✅ 通常モードで動作しています。Claudeは制限された権限で実行されます。'),
-            },
-          },
-        ],
+                (this.skipPermissionsEnabled
+                  ? '⚠️ **警告:** このモードでは、対応ツールはファイルシステムへの広いアクセス権を持ちます。信頼できる環境でのみ使用してください。'
+                  : '✅ 通常モードで動作しています。ツールは制限された権限で実行されます。')
+            }
+          }
+        ]
       };
     });
 
-    // Setup /claude-repo command handler
     bot.onCommand('claude-repo', async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text) {
         return {
@@ -318,30 +435,29 @@ export class BotManager {
               text: {
                 type: 'mrkdwn',
                 text: '*リポジトリ管理コマンド*\n\n' +
-                      '• `/claude-repo <リポジトリURL>` - リポジトリをクローンしてチャンネルに紐付け\n' +
-                      '• `/claude-repo status` - 現在のリポジトリ状態を確認\n' +
-                      '• `/claude-repo delete` - チャンネルとリポジトリの紐付けを削除',
-              },
-            },
-          ],
+                  '• `/claude-repo <リポジトリURL>` - リポジトリをクローンしてチャンネルに紐付け\n' +
+                  '• `/claude-repo status` - 現在のリポジトリ状態を確認\n' +
+                  '• `/claude-repo delete` - チャンネルとリポジトリの紐付けを削除'
+              }
+            }
+          ]
         };
       }
 
       const args = message.text.trim().toLowerCase();
 
-      // Handle status command
       if (args === 'status') {
         const repo = this.storageService.getChannelRepository(message.channelId);
         if (!repo) {
           return {
-            text: '❌ このチャンネルにはリポジトリが設定されていません',
+            text: '❌ このチャンネルにはリポジトリが設定されていません'
           };
         }
 
         const status = await this.gitService.getRepositoryStatus(repo.localPath);
         if (!status.success) {
           return {
-            text: `❌ リポジトリの状態を取得できませんでした: ${status.error}`,
+            text: `❌ リポジトリの状態を取得できませんでした: ${status.error}`
           };
         }
 
@@ -353,41 +469,37 @@ export class BotManager {
               text: {
                 type: 'mrkdwn',
                 text: `*リポジトリ情報*\n\n` +
-                      `URL: ${repo.repositoryUrl}\n` +
-                      `クローン日時: ${new Date(repo.createdAt).toLocaleString('ja-JP')}\n\n` +
-                      `*Git状態*\n\`\`\`${status.status}\`\`\``,
-              },
-            },
-          ],
+                  `URL: ${repo.repositoryUrl}\n` +
+                  `クローン日時: ${new Date(repo.createdAt).toLocaleString('ja-JP')}\n\n` +
+                  `*Git状態*\n\`\`\`${status.status}\`\`\``
+              }
+            }
+          ]
         };
       }
 
-      // Handle delete command
       if (args === 'delete') {
         const deleted = this.storageService.deleteChannelRepository(message.channelId);
         if (deleted) {
           return {
-            text: '✅ チャンネルとリポジトリの紐付けを削除しました',
-          };
-        } else {
-          return {
-            text: '❌ このチャンネルにはリポジトリが設定されていません',
+            text: '✅ チャンネルとリポジトリの紐付けを削除しました'
           };
         }
+        return {
+          text: '❌ このチャンネルにはリポジトリが設定されていません'
+        };
       }
 
-      // Handle reset command - すべてのリポジトリ関係をリセット
       if (args === 'reset') {
         const channels = this.storageService.getAllChannelRepositories();
         const channelCount = Object.keys(channels).length;
-        
+
         if (channelCount === 0) {
           return {
-            text: '❌ 現在リポジトリが紐付けられているチャンネルはありません',
+            text: '❌ 現在リポジトリが紐付けられているチャンネルはありません'
           };
         }
 
-        // すべてのチャンネルのリポジトリ紐付けを削除
         for (const channelId of Object.keys(channels)) {
           this.storageService.deleteChannelRepository(channelId);
         }
@@ -400,34 +512,28 @@ export class BotManager {
               text: {
                 type: 'mrkdwn',
                 text: `*リポジトリ関係のリセット完了*\n\n` +
-                      `削除されたチャンネル数: ${channelCount}\n\n` +
-                      `すべてのチャンネルのリポジトリ紐付けが削除されました。`,
-              },
-            },
-          ],
+                  `削除されたチャンネル数: ${channelCount}\n\n` +
+                  'すべてのチャンネルのリポジトリ紐付けが削除されました。'
+              }
+            }
+          ]
         };
       }
 
-      // Handle clone command (repository URL)
       const repoUrl = message.text.trim();
-      
-      // Basic URL validation
       if (!repoUrl.match(/^(https?:\/\/|git@)/)) {
         return {
-          text: '❌ 有効なリポジトリURLを入力してください（HTTPSまたはSSH形式）',
+          text: '❌ 有効なリポジトリURLを入力してください（HTTPSまたはSSH形式）'
         };
       }
 
-      // Clone the repository
       const cloneResult = await this.gitService.cloneRepository(repoUrl, message.channelId);
-      
       if (!cloneResult.success) {
         return {
-          text: `❌ リポジトリのクローンに失敗しました: ${cloneResult.error}`,
+          text: `❌ リポジトリのクローンに失敗しました: ${cloneResult.error}`
         };
       }
 
-      // Save the channel-repository mapping
       this.storageService.setChannelRepository(message.channelId, repoUrl, cloneResult.localPath!);
 
       return {
@@ -438,26 +544,34 @@ export class BotManager {
             text: {
               type: 'mrkdwn',
               text: `*リポジトリのクローンが完了しました*\n\n` +
-                    `URL: ${repoUrl}\n` +
-                    `チャンネル: <#${message.channelId}>\n\n` +
-                    `これでこのチャンネルでClaudeに話しかけると、このリポジトリのコンテキストで応答します。`,
-            },
-          },
-        ],
+                `URL: ${repoUrl}\n` +
+                `チャンネル: <#${message.channelId}>\n\n` +
+                'これでこのチャンネルでツールを実行すると、このリポジトリのコンテキストで応答します。'
+            }
+          }
+        ]
       };
     });
   }
 
   async startAll(): Promise<void> {
     logger.info('Starting all bots');
-    
-    const isAvailable = await this.claudeClient.checkAvailability();
-    logger.info('Claude CLI availability check', { available: isAvailable });
-    
-    if (!isAvailable) {
-      logger.warn('Claude CLI not found. Please install from: https://claude.ai/download');
-    }
-    
+
+    const tools = this.toolClient.listTools();
+    const statuses = await Promise.all(
+      tools.map(async (tool) => ({
+        name: tool.name,
+        available: await this.toolClient.checkAvailability(tool.name)
+      }))
+    );
+
+    statuses.forEach(status => {
+      logger.info('Tool CLI availability check', status);
+      if (!status.available) {
+        logger.warn(`Tool CLI not found`, { tool: status.name });
+      }
+    });
+
     await Promise.all(this.bots.map(bot => bot.start()));
     logger.info('All bots started', { count: this.bots.length });
   }
@@ -466,9 +580,8 @@ export class BotManager {
     logger.info('Stopping all bots');
     await Promise.all(this.bots.map(bot => bot.stop()));
     logger.info('All bots stopped', { count: this.bots.length });
-    
-    // クリーンアップ実行
-    this.claudeClient.cleanup();
-    logger.debug('Claude client cleanup completed');
+
+    this.toolClient.cleanup();
+    logger.debug('Tool client cleanup completed');
   }
 }

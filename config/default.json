@@ -12,6 +12,18 @@
     "forceAllowRoot": false,
     "runAsUser": null
   },
+  "tools": {
+    "defaultTool": "claude",
+    "definitions": {
+      "claude": {
+        "command": "claude",
+        "args": ["--print", "{prompt}"],
+        "versionArgs": ["--version"],
+        "description": "Anthropic Claude CLI",
+        "supportsSkipPermissions": true
+      }
+    }
+  },
   "server": {
     "port": 3000
   },

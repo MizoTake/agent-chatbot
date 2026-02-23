@@ -30,6 +30,16 @@ export interface BotConfig {
     enableAliases?: boolean;
     customAliases?: Record<string, string>;
   };
+  tools?: {
+    defaultTool?: string;
+    definitions?: Record<string, {
+      command: string;
+      args?: string[];
+      versionArgs?: string[];
+      description?: string;
+      supportsSkipPermissions?: boolean;
+    }>;
+  };
 }
 
 export class ConfigLoader {

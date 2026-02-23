@@ -10,7 +10,7 @@ Claude CLIをSlackとDiscordに統合し、Gitリポジトリのコンテキス�
 
 - **マルチプラットフォーム対応**: SlackとDiscordの両方で動作
 - **リポジトリコンテキスト**: チャンネルごとにGitリポジトリをクローンして管理
-- **Claude CLI統合**: Claudeの機能に直接アクセス
+- **マルチAI CLI統合**: Claudeを既定に、設定次第でGemini/Aider等にも接続可能
 - **スレッド管理**: スレッド内で会話のコンテキストを維持
 - **Socket Mode**: パブリックURLを必要としない簡単なセットアップ（Slack）
 - **グレースフルシャットダウン**: 適切なシグナル処理とクリーンアップ
@@ -77,6 +77,11 @@ Claude CLIをSlackとDiscordに統合し、Gitリポジトリのコンテキス�
 npm run dev
 ```
 
+**テスト実行:**
+```bash
+npm test
+```
+
 **本番モード:**
 ```bash
 npm start
@@ -95,7 +100,12 @@ npm start
 - **ダイレクトメッセージ**: ボットに直接メッセージを送信
 - **チャンネルメンション**: `@ボット名 メッセージ`
 - **スラッシュコマンド**:
-  - `/claude <プロンプト>` - Claudeにプロンプトを送信
+  - `/claude <プロンプト>` - 現在の既定ツールでプロンプトを送信
+  - `/claude --tool <name> <プロンプト>` - 1回だけ実行ツールを指定
+  - `/claude-tool status` - 現在の有効ツールを確認
+  - `/claude-tool list` - 設定済みツールとCLI検出状態を確認
+  - `/claude-tool use <name>` - このチャンネルの既定ツールを変更
+  - `/claude-tool clear` - チャンネル既定ツールを解除
   - `/claude-repo <URL>` - リポジトリをクローンしてリンク
   - `/claude-repo status` - リポジトリの状態を確認
   - `/claude-repo delete` - リポジトリのリンクを削除
@@ -150,13 +160,30 @@ claude-chatbot/
 │   ├── services/        # ビジネスロジックサービス
 │   ├── utils/           # ユーティリティ関数
 │   ├── BotManager.ts    # ボット中央コーディネーター
-│   ├── claudeCLIClient.ts # Claude CLIラッパー
+│   ├── toolCLIClient.ts # AIツールCLIラッパー（Claude/Gemini等）
 │   └── index.ts         # アプリケーションエントリーポイント
 ├── config/              # 設定ファイル
 ├── docs/                # ドキュメント
 ├── scripts/             # シェルスクリプト
 └── repositories/        # クローンされたGitリポジトリ
 ```
+
+### 追加ツールの設定例
+
+`claude-bot.yml` の `tools.definitions` にCLI定義を追加すると、Claude/Codex以外のツールも利用できます。
+
+```yaml
+tools:
+  defaultTool: claude
+  definitions:
+    gemini:
+      command: gemini
+      args: ["chat", "--prompt", "{prompt}"]
+      versionArgs: ["--version"]
+      description: Google Gemini CLI
+```
+
+`{prompt}` はユーザー入力に置換されます。`args`/`versionArgs` は各CLIの仕様に合わせて調整してください。
 
 ## 📖 ドキュメント
 
