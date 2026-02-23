@@ -28,7 +28,7 @@ npx tsc --noEmit
 
 ## Architecture Overview
 
-This is a multi-platform bot application that connects Slack and Discord to a local Claude Code instance with Git repository integration. The architecture consists of:
+This is a multi-platform bot application that connects Slack and Discord to local agent CLIs (Claude/Codex/vibe-local) with Git repository integration. The architecture consists of:
 
 ### Core Components
 
@@ -41,7 +41,7 @@ This is a multi-platform bot application that connects Slack and Discord to a lo
 2. **Bot Manager (`src/BotManager.ts`)**
    - Central coordinator for all bot instances
    - Handles common message processing logic
-   - Routes commands and messages to Claude Code Client
+   - Routes commands and messages to the tool CLI client
    - Manages bot lifecycle (start/stop)
    - Integrates with Storage and Git services for repository management
    - Handles repository-aware command execution
@@ -50,12 +50,12 @@ This is a multi-platform bot application that connects Slack and Discord to a lo
    - **SlackAdapter (`src/adapters/SlackAdapter.ts`)**: Implements Slack-specific features using Bolt framework
    - **DiscordAdapter (`src/adapters/DiscordAdapter.ts`)**: Implements Discord-specific features using discord.js
    - Both implement the common `BotAdapter` interface for consistency
-   - Support for `/claude-repo` command for repository management
+   - Support for `/agent-repo` command for repository management
 
 4. **Tool CLI Client (`src/toolCLIClient.ts`)**
-   - Abstraction layer for communicating with CLI tools (Claude as default)
+   - Abstraction layer for communicating with CLI tools (Claude/Codex/vibe-local)
    - Executes tool commands via shell with optional working directory support
-   - Supports per-channel/default tool selection (`/claude-tool`)
+   - Supports per-channel/default tool selection (`/agent-tool`)
    - Supports repository context by setting working directory
 
 5. **Storage Service (`src/services/StorageService.ts`)**
@@ -78,15 +78,15 @@ This is a multi-platform bot application that connects Slack and Discord to a lo
   - **Discord**: Requires one token:
     - `DISCORD_BOT_TOKEN`: Bot authentication token
 
-- **Claude Code Connection**: 
-  - Executes Claude CLI commands directly via shell
+- **Agent CLI Connection**: 
+  - Executes configured CLI commands directly via shell
   - Supports working directory context for repository-aware operations
   - Commands are executed with proper escaping and timeout handling
 
 ### Error Handling Pattern
 
 All user-facing operations follow this pattern:
-1. Health check Claude Code CLI availability
+1. Health check selected CLI availability
 2. Validate user input
 3. Send initial acknowledgment to user
 4. Process request with appropriate error messaging
@@ -95,14 +95,14 @@ All user-facing operations follow this pattern:
 ### Repository Integration
 
 The bot supports Git repository integration per channel:
-- **Clone**: `/claude-repo <git-url>` - Clones repository and links to channel
-- **Status**: `/claude-repo status` - Shows current repository information
-- **Delete**: `/claude-repo delete` - Removes channel-repository association
-- **Reset**: `/claude-repo reset` - Removes all channel-repository associations
+- **Clone**: `/agent-repo <git-url>` - Clones repository and links to channel
+- **Status**: `/agent-repo status` - Shows current repository information
+- **Delete**: `/agent-repo delete` - Removes channel-repository association
+- **Reset**: `/agent-repo reset` - Removes all channel-repository associations
 
 When a repository is linked to a channel:
-- All Claude commands execute in the repository's directory
-- Claude has full context of the repository's code
+- All `/agent` commands execute in the repository's directory
+- The selected tool has full context of the repository's code
 - Multiple channels can have different repositories
 - Repository data persists across bot restarts
 

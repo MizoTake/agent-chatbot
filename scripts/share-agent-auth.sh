@@ -1,5 +1,5 @@
 #!/bin/bash
-# Script to share Claude authentication from root to agent-chatbot user
+# Script to share Agent Chatbot Claude authentication from root to agent-chatbot user
 
 set -e
 
@@ -13,7 +13,7 @@ fi
 
 # Check if agent-chatbot user exists
 if ! id "agent-chatbot" &>/dev/null; then
-    echo "Error: agent-chatbot user does not exist. Please run setup-claude-user.sh first."
+    echo "Error: agent-chatbot user does not exist. Please run setup-agent-user.sh first."
     exit 1
 fi
 

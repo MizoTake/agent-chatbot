@@ -28,7 +28,7 @@ export class ErrorMessages {
     
     ['REPO_NOT_FOUND', {
       message: 'このチャンネルにリポジトリが設定されていません',
-      solution: '`/claude-repo <リポジトリURL>`でリポジトリを設定してください'
+      solution: '`/agent-repo <リポジトリURL>`でリポジトリを設定してください'
     }],
     
     ['PERMISSION_DENIED', {
@@ -53,7 +53,7 @@ export class ErrorMessages {
     
     ['INVALID_COMMAND', {
       message: '無効なコマンドです',
-      solution: '`/claude-help`でヘルプを確認してください'
+      solution: '`/agent-help`でヘルプを確認してください'
     }],
     
     ['RATE_LIMIT', {

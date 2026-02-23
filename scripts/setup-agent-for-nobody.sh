@@ -1,9 +1,9 @@
 #!/bin/bash
-# Setup script to allow nobody user to run Claude CLI
+# Setup script to allow nobody user to run Agent Chatbot's Claude CLI
 
 set -e
 
-echo "Setting up Claude CLI for nobody user..."
+echo "Setting up Agent Chatbot Claude CLI for nobody user..."
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then 

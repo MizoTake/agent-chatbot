@@ -1,9 +1,9 @@
 #!/bin/bash
-# Setup script to create a dedicated user for Claude CLI with proper permissions
+# Setup script to create a dedicated user for Agent Chatbot (Claude CLI) with proper permissions
 
 set -e
 
-echo "Setting up dedicated agent-chatbot user for Claude CLI..."
+echo "Setting up dedicated agent-chatbot user for Agent Chatbot (Claude CLI)..."
 
 # Check if running as root
 if [ "$EUID" -ne 0 ]; then 
@@ -80,10 +80,10 @@ read -r SHARE_AUTH
 if [[ "$SHARE_AUTH" =~ ^[Yy]$ ]]; then
     echo "Sharing authentication..."
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    if [ -x "$SCRIPT_DIR/share-claude-auth.sh" ]; then
-        "$SCRIPT_DIR/share-claude-auth.sh"
+    if [ -x "$SCRIPT_DIR/share-agent-auth.sh" ]; then
+        "$SCRIPT_DIR/share-agent-auth.sh"
     else
-        echo "Warning: share-claude-auth.sh not found or not executable"
+        echo "Warning: share-agent-auth.sh not found or not executable"
     fi
 fi
 

@@ -191,7 +191,7 @@ export class Logger {
 }
 
 // デフォルトロガーのエクスポート
-export const logger = new Logger('claude-chatbot');
+export const logger = new Logger('agent-chatbot');
 
 // 便利なヘルパー関数
 export function createLogger(name: string): Logger {

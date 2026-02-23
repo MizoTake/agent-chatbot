@@ -11,7 +11,7 @@ Claude / Codex / vibe-local などのCLIエージェントをSlackとDiscordに�
 - **マルチプラットフォーム対応**: SlackとDiscordの両方で動作
 - **リポジトリコンテキスト**: チャンネルごとにGitリポジトリをクローンして管理
 - **マルチAI CLI統合**: Claude / Codex / vibe-local を既定サポート（設定次第でGemini/Aider等も追加可能）
-- **スレッド管理**: スレッド内で会話のコンテキストを維持
+- **スレッド返信**: チャンネルメッセージにスレッドで応答
 - **Socket Mode**: パブリックURLを必要としない簡単なセットアップ（Slack）
 - **グレースフルシャットダウン**: 適切なシグナル処理とクリーンアップ
 - **構造化ログ**: JSONと人間が読みやすいログ形式
@@ -93,7 +93,7 @@ npm start
 
 **スクリプトを使用:**
 ```bash
-./scripts/start.sh       # バックグラウンドで起動
+./scripts/start.sh       # ローカルで起動（フォアグラウンド）
 ./scripts/stop.sh        # ボットを停止
 ./scripts/restart.sh     # ボットを再起動
 ```
@@ -156,6 +156,7 @@ npm start
 - `LOG_FORMAT`: ログ形式（human/json）
 - `DEBUG`: デバッグ出力を有効化（true/false）
 - `AGENT_CHATBOT_TOOLS_DEFAULTTOOL`: 既定ツール名（例: `claude`, `codex`, `vibe-local`）
+- `AGENT_CHATBOT_APP_NAME`: Slack/Discordの表示名を固定したい場合に指定（未指定時は既定ツール名を使用）
 
 **権限設定（Claude CLI利用時）:**
 - `CLAUDE_FORCE_ALLOW_ROOT`: root権限での--dangerously-skip-permissions使用を許可（true/false）
@@ -221,13 +222,13 @@ root権限で実行する場合、`--dangerously-skip-permissions`フラグを�
 
 ```bash
 # agent-chatbotユーザーをセットアップ
-sudo ./scripts/setup-claude-user.sh
+sudo ./scripts/setup-agent-user.sh
 
 # 認証情報を共有（rootで認証済みの場合）
-sudo ./scripts/share-claude-auth.sh
+sudo ./scripts/share-agent-auth.sh
 
 # または、既存のnobodyユーザー用にセットアップ（非推奨）
-sudo ./scripts/setup-claude-for-nobody.sh
+sudo ./scripts/setup-agent-for-nobody.sh
 ```
 
 セットアップ後、以下のいずれかの方法で使用：
@@ -269,5 +270,3 @@ sudo ./scripts/setup-claude-for-nobody.sh
 このプロジェクトはMITライセンスの下でライセンスされています - 詳細は[LICENSE](LICENSE)ファイルを参照してください。
 
 ---
-
-*このプロジェクトは[Claude Code](https://claude.ai/code)を使用して生成されました。*

@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Claude Chat Bot 起動スクリプト（ローカル実行）
+# Agent Chatbot 起動スクリプト（ローカル実行）
 
-echo "🚀 Claude Chat Bot 起動スクリプト"
-echo "================================="
+echo "🚀 Agent Chatbot 起動スクリプト"
+echo "================================"
 
 # 色付き出力用の関数
 print_success() { echo -e "\033[0;32m✅ $1\033[0m"; }
@@ -11,13 +11,21 @@ print_error() { echo -e "\033[0;31m❌ $1\033[0m"; }
 print_warning() { echo -e "\033[0;33m⚠️  $1\033[0m"; }
 print_info() { echo -e "\033[0;36mℹ️  $1\033[0m"; }
 
-# Claude CLIの存在チェック
-check_claude_cli() {
+# 利用可能なCLIツールの存在チェック
+detect_agent_cli() {
     if command -v claude &> /dev/null; then
+        echo "claude"
         return 0
-    else
-        return 1
     fi
+    if command -v codex &> /dev/null; then
+        echo "codex"
+        return 0
+    fi
+    if command -v vibe-local &> /dev/null; then
+        echo "vibe-local"
+        return 0
+    fi
+    return 1
 }
 
 # Node.jsのバージョンチェック
@@ -107,18 +115,23 @@ else
     exit 1
 fi
 
-# Claude CLIの確認
+# CLIツールの確認
 echo ""
-echo "📋 Claude CLIの状態を確認中..."
+echo "📋 CLIツールの状態を確認中..."
 
-if check_claude_cli; then
-    print_success "Claude CLIがインストールされています"
-    print_info "Claudeコマンドはチャットメッセージごとに実行されます"
+DETECTED_CLI=$(detect_agent_cli)
+if [ -n "$DETECTED_CLI" ]; then
+    print_success "利用可能なCLIを検出しました: $DETECTED_CLI"
+    print_info "コマンドはチャットメッセージごとに実行されます"
 else
-    print_error "Claude CLIがインストールされていません"
+    print_error "利用可能なCLIが見つかりませんでした"
     echo ""
-    echo "Claudeをインストールしてください:"
-    echo "  https://claude.ai/download"
+    echo "いずれかのCLIをインストールしてください:"
+    echo "  Claude: https://claude.ai/download"
+    echo "  Codex: https://github.com/openai/codex"
+    echo "  vibe-local: https://github.com/ochyai/vibe-local"
+    echo ""
+    echo "※ vibe-localを使う場合は Ollama も必要です"
     echo ""
     echo "インストール後、再度このスクリプトを実行してください"
     exit 1

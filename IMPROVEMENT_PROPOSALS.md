@@ -1,8 +1,8 @@
-# Claude Slack/Discord Bot 改善提案
+# Agent Chatbot 改善提案
 
 ## 🎯 概要
 
-このドキュメントは、Claude Slack/Discord Botプロジェクトをより良くするための包括的な改善提案をまとめたものです。
+このドキュメントは、Agent Chatbotプロジェクトをより良くするための包括的な改善提案をまとめたものです。
 
 > 注: この文書は将来構想を含む提案メモです。現行実装と差分がある可能性があります。
 
@@ -28,8 +28,8 @@
 
 #### 1.1 単体テスト
 ```typescript
-// src/__tests__/claudeCLIClient.test.ts
-describe('ClaudeCLIClient', () => {
+// src/__tests__/toolCLIClient.test.ts
+describe('ToolCLIClient', () => {
   it('should handle timeouts correctly', async () => {
     // タイムアウト処理のテスト
   });
@@ -134,8 +134,8 @@ interface RepositoryManager {
 #### 5.1 Prometheusメトリクス
 ```typescript
 // メトリクス例
-- claude_requests_total
-- claude_response_duration_seconds
+- agent_requests_total
+- agent_response_duration_seconds
 - repository_clone_duration_seconds
 - active_conversations_count
 ```
@@ -146,7 +146,7 @@ interface HealthCheck {
   status: 'healthy' | 'degraded' | 'unhealthy';
   checks: {
     database: CheckResult;
-    claudeCLI: CheckResult;
+    toolCLI: CheckResult;
     diskSpace: CheckResult;
     memory: CheckResult;
   };
@@ -202,7 +202,7 @@ class CacheService {
 ```bash
 # 構想段階の例（現行package.jsonには未実装）
 # <将来のCLI> create-plugin my-plugin
-# <将来のCLI> test-command /claude "Hello"
+# <将来のCLI> test-command /agent "Hello"
 # <将来のCLI> mock-server
 ```
 
@@ -267,8 +267,8 @@ class CacheService {
 
 2. **コマンドエイリアス**
    ```typescript
-   /claude → /c
-   /claude-repo → /cr
+   /agent → /a
+   /agent-repo → /ar
    ```
 
 3. **自動補完サポート**

@@ -23,4 +23,5 @@ export interface BotInterface {
 export interface BotAdapter extends BotInterface {
   onMessage(handler: (message: BotMessage) => Promise<BotResponse | null>): void;
   onCommand(command: string, handler: (message: BotMessage) => Promise<BotResponse | null>): void;
+  setAgentName?(agentName: string): void;
 }

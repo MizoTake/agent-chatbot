@@ -6,8 +6,11 @@ export class DiscordAdapter implements BotAdapter {
   private messageHandler?: (message: BotMessage) => Promise<BotResponse | null>;
   private commandHandlers: Map<string, (message: BotMessage) => Promise<BotResponse | null>> = new Map();
   private botUserId?: string;
+  private agentName: string;
+  private readonly token: string;
+  private isLoggedIn: boolean = false;
 
-  constructor(token: string) {
+  constructor(token: string, agentName: string = 'agent') {
     this.client = new Client({
       intents: [
         GatewayIntentBits.Guilds,
@@ -21,16 +24,22 @@ export class DiscordAdapter implements BotAdapter {
       ],
       partials: [Partials.Message, Partials.Channel], // DMを受信するために必要
     });
+    this.agentName = agentName;
+    this.token = token;
 
     this.setupEventHandlers();
-    this.client.login(token);
+  }
+
+  setAgentName(agentName: string): void {
+    this.agentName = agentName;
   }
 
   private setupEventHandlers(): void {
     this.client.once('ready', () => {
       console.log(`🤖 Discord bot logged in as ${this.client.user?.tag}`);
       this.botUserId = this.client.user?.id;
-      this.registerSlashCommands();
+      void this.syncIdentity();
+      void this.registerSlashCommands();
     });
 
     this.client.on('messageCreate', async (message: Message) => {
@@ -102,6 +111,28 @@ export class DiscordAdapter implements BotAdapter {
     });
   }
 
+  private async syncIdentity(): Promise<void> {
+    const normalizedAgentName = this.agentName.trim();
+    if (!normalizedAgentName || !this.client.user) {
+      return;
+    }
+
+    try {
+      if (this.client.user.username !== normalizedAgentName) {
+        await this.client.user.setUsername(normalizedAgentName);
+        console.log(`✅ Discord bot username updated to ${normalizedAgentName}`);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Failed to update Discord bot username to ${normalizedAgentName}:`, error);
+    }
+
+    try {
+      this.client.user.setActivity(`${normalizedAgentName} で待機中`);
+    } catch (error) {
+      console.warn('⚠️ Failed to update Discord bot presence:', error);
+    }
+  }
+
   private cleanMessageContent(content: string): string {
     // Remove bot mentions
     return content.replace(/<@!?\d+>/g, '').trim();
@@ -124,34 +155,36 @@ export class DiscordAdapter implements BotAdapter {
   }
 
   private async registerSlashCommands(): Promise<void> {
+    const normalizedAgentName = this.agentName.trim() || 'agent';
+
     const commands = [
       {
         name: 'agent',
-        description: 'Chat with Agent',
+        description: `Chat with ${normalizedAgentName}`,
         options: [{
           name: 'prompt',
           type: 3, // STRING type
-          description: 'Your message to the agent',
+          description: `Your message to ${normalizedAgentName}`,
           required: true,
         }],
       },
       {
         name: 'claude',
-        description: 'Chat with Agent (legacy alias)',
+        description: `Chat with ${normalizedAgentName} (legacy alias)`,
         options: [{
           name: 'prompt',
           type: 3, // STRING type
-          description: 'Your message to the agent',
+          description: `Your message to ${normalizedAgentName}`,
           required: true,
         }],
       },
       {
         name: 'agent-help',
-        description: 'Agent Chatbotのヘルプを表示',
+        description: `${normalizedAgentName}のヘルプを表示`,
       },
       {
         name: 'claude-help',
-        description: 'Agent Chatbotのヘルプを表示 (互換)',
+        description: `${normalizedAgentName}のヘルプを表示 (互換)`,
       },
       {
         name: 'agent-status',
@@ -240,12 +273,19 @@ export class DiscordAdapter implements BotAdapter {
   }
 
   async start(): Promise<void> {
-    // Client is already starting in constructor
+    if (this.isLoggedIn) {
+      console.log('🚀 Discord bot is already running');
+      return;
+    }
+
+    await this.client.login(this.token);
+    this.isLoggedIn = true;
     console.log('🚀 Discord bot starting...');
   }
 
   async stop(): Promise<void> {
     await this.client.destroy();
+    this.isLoggedIn = false;
     console.log('🛑 Discord bot stopped');
   }
 

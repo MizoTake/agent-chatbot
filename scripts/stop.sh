@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Claude Chat Bot 停止スクリプト（ローカル実行）
+# Agent Chatbot 停止スクリプト（ローカル実行）
 
-echo "🛑 Claude Chat Bot 停止スクリプト"
-echo "================================"
+echo "🛑 Agent Chatbot 停止スクリプト"
+echo "==============================="
 
 # 色付き出力用の関数
 print_success() { echo -e "\033[0;32m✅ $1\033[0m"; }
@@ -42,9 +42,9 @@ if [ -n "$TS_NODE_PIDS" ]; then
     done
 fi
 
-# Claude関連プロセスについて
+# CLI関連プロセスについて
 echo ""
-print_info "注: Claude CLIはチャットメッセージごとに実行されるため、常駐プロセスはありません"
+print_info "注: CLIツールはチャットメッセージごとに実行されるため、常駐プロセスはありません"
 
 # ポートの確認
 echo ""

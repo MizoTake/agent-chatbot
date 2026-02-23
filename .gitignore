@@ -42,12 +42,12 @@ channel-tools.json
 repositories/
 
 # Configuration
-claude-bot.yml
-claude-bot.yaml
-claude-bot.json
-.claude-bot.yml
-.claude-bot.yaml
-.claude-bot.json
+agent-chatbot.yml
+agent-chatbot.yaml
+agent-chatbot.json
+.agent-chatbot.yml
+.agent-chatbot.yaml
+.agent-chatbot.json
 
 # Coverage
 coverage/

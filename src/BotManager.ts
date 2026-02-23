@@ -29,6 +29,7 @@ export class BotManager {
   private toolPreferenceService: ToolPreferenceService;
   private gitService: GitService;
   private skipPermissionsEnabled: boolean = false;
+  private readonly configLoadPromise: Promise<void>;
 
   constructor() {
     this.toolClient = new ToolCLIClient();
@@ -36,7 +37,7 @@ export class BotManager {
     this.toolPreferenceService = new ToolPreferenceService();
     this.gitService = new GitService();
 
-    this.loadConfig();
+    this.configLoadPromise = this.loadConfig();
   }
 
   private async loadConfig(): Promise<void> {
@@ -70,15 +71,29 @@ export class BotManager {
   }
 
   addSlackBot(token: string, signingSecret: string, appToken: string): void {
-    const slackBot = new SlackAdapter(token, signingSecret, appToken);
+    const slackBot = new SlackAdapter(token, signingSecret, appToken, this.resolveAgentDisplayName());
     this.setupBot(slackBot);
     this.bots.push(slackBot);
   }
 
   addDiscordBot(token: string): void {
-    const discordBot = new DiscordAdapter(token);
+    const discordBot = new DiscordAdapter(token, this.resolveAgentDisplayName());
     this.setupBot(discordBot);
     this.bots.push(discordBot);
+  }
+
+  private resolveAgentDisplayName(): string {
+    const explicitName = process.env.AGENT_CHATBOT_APP_NAME?.trim();
+    if (explicitName) {
+      return explicitName;
+    }
+
+    const envDefaultTool = process.env.AGENT_CHATBOT_TOOLS_DEFAULTTOOL?.trim();
+    if (envDefaultTool) {
+      return envDefaultTool;
+    }
+
+    return this.toolClient.getDefaultToolName();
   }
 
   private parsePrompt(text: string): ParsedPrompt {
@@ -644,7 +659,13 @@ export class BotManager {
   }
 
   async startAll(): Promise<void> {
+    await this.configLoadPromise;
+
+    const agentDisplayName = this.resolveAgentDisplayName();
+    this.bots.forEach(bot => bot.setAgentName?.(agentDisplayName));
+
     logger.info('Starting all bots');
+    logger.info('Resolved runtime agent display name', { agentDisplayName });
 
     const tools = this.toolClient.listTools();
     const statuses = await Promise.all(

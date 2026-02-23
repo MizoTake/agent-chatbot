@@ -1,5 +1,5 @@
 {
-  "name": "claude-chatbot",
+  "name": "agent-chatbot",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
@@ -14,7 +14,7 @@
   "keywords": ["claude", "slack", "discord", "bot", "ai", "assistant"],
   "author": "",
   "license": "MIT",
-  "description": "Multi-platform bot that integrates Claude CLI with Slack and Discord, featuring Git repository context awareness",
+  "description": "Multi-platform bot that integrates agent CLIs (Claude/Codex/vibe-local) with Slack and Discord, featuring Git repository context awareness",
   "dependencies": {
     "@slack/bolt": "^4.4.0",
     "@slack/web-api": "^7.9.2",

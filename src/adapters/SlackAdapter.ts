@@ -5,16 +5,22 @@ export class SlackAdapter implements BotAdapter {
   private app: App;
   private messageHandler?: (message: BotMessage) => Promise<BotResponse | null>;
   private commandHandlers: Map<string, (message: BotMessage) => Promise<BotResponse | null>> = new Map();
+  private agentName: string;
 
-  constructor(token: string, signingSecret: string, appToken: string) {
+  constructor(token: string, signingSecret: string, appToken: string, agentName: string = 'agent') {
     this.app = new App({
       token,
       signingSecret,
       socketMode: true,
       appToken,
     });
+    this.agentName = agentName;
 
     this.setupEventHandlers();
+  }
+
+  setAgentName(agentName: string): void {
+    this.agentName = agentName;
   }
 
   private setupEventHandlers(): void {
@@ -144,6 +150,7 @@ export class SlackAdapter implements BotAdapter {
 
   async start(): Promise<void> {
     await this.app.start();
+    await this.syncIdentity();
     console.log('⚡️ Slack bot is running!');
   }
 
@@ -170,5 +177,32 @@ export class SlackAdapter implements BotAdapter {
 
   onCommand(command: string, handler: (message: BotMessage) => Promise<BotResponse | null>): void {
     this.commandHandlers.set(command, handler);
+  }
+
+  private async syncIdentity(): Promise<void> {
+    const normalizedAgentName = this.agentName.trim();
+    if (!normalizedAgentName) {
+      return;
+    }
+
+    try {
+      const authResult = await this.app.client.auth.test();
+      if (!authResult.user_id) {
+        return;
+      }
+
+      await this.app.client.users.profile.set({
+        user: authResult.user_id,
+        profile: JSON.stringify({
+          display_name: normalizedAgentName,
+          real_name: normalizedAgentName,
+        }),
+      } as any);
+
+      console.log(`✅ Slack bot display name updated to ${normalizedAgentName}`);
+    } catch (error: any) {
+      const slackError = error?.data?.error || error?.message || String(error);
+      console.warn(`⚠️ Failed to update Slack bot display name to ${normalizedAgentName}: ${slackError}`);
+    }
   }
 }

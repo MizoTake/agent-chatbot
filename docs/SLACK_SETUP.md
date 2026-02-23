@@ -4,7 +4,7 @@
 
 - Slackワークスペースの管理者権限
 - Node.js 18以上
-- Claude CLIがインストール済み
+- 利用したいCLI（Claude / Codex / vibe-local のいずれか）がインストール済み
 
 ## セットアップ手順
 
