@@ -63,14 +63,25 @@ export class DiscordAdapter implements BotAdapter {
         if (this.messageHandler) {
           // Send thinking message for guild channels
           if (isGuildChannel && !isMention) {
-            const thinkingMsg = await message.reply('🤔 考えています...');
+            const thinkingMsg = await message.reply({
+              content: '🤔 考えています...',
+              allowedMentions: {
+                repliedUser: false,
+              },
+            });
             
             const response = await this.messageHandler(botMessage);
             if (response) {
               const embeds = response.blocks ? this.convertBlocksToEmbeds(response.blocks) : undefined;
-              await thinkingMsg.edit({
+              await message.reply({
                 content: embeds && embeds.length > 0 ? undefined : response.text,
                 embeds: embeds,
+                allowedMentions: {
+                  repliedUser: true,
+                },
+              });
+              await thinkingMsg.delete().catch(() => {
+                // 権限不足などで削除できない場合は表示を残す
               });
             }
           } else {
