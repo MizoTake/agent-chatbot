@@ -10,39 +10,74 @@ export interface CommandAlias {
 
 export const COMMAND_ALIASES: CommandAlias[] = [
   {
+    alias: 'a',
+    command: 'agent',
+    description: '/agentの短縮形'
+  },
+  {
+    alias: 'ar',
+    command: 'agent-repo',
+    description: '/agent-repoの短縮形'
+  },
+  {
+    alias: 'ah',
+    command: 'agent-help',
+    description: '/agent-helpの短縮形'
+  },
+  {
+    alias: 'as',
+    command: 'agent-status',
+    description: '/agent-statusの短縮形'
+  },
+  {
+    alias: 'ac',
+    command: 'agent-clear',
+    description: '/agent-clearの短縮形'
+  },
+  {
+    alias: 'asp',
+    command: 'agent-skip-permissions',
+    description: '/agent-skip-permissionsの短縮形'
+  },
+  {
+    alias: 'at',
+    command: 'agent-tool',
+    description: '/agent-toolの短縮形'
+  },
+  {
     alias: 'c',
-    command: 'claude',
-    description: '/claudeの短縮形'
+    command: 'agent',
+    description: '/agentの互換短縮形'
   },
   {
     alias: 'cr',
-    command: 'claude-repo',
-    description: '/claude-repoの短縮形'
+    command: 'agent-repo',
+    description: '/agent-repoの互換短縮形'
   },
   {
     alias: 'ch',
-    command: 'claude-help',
-    description: '/claude-helpの短縮形'
+    command: 'agent-help',
+    description: '/agent-helpの互換短縮形'
   },
   {
     alias: 'cs',
-    command: 'claude-status',
-    description: '/claude-statusの短縮形'
+    command: 'agent-status',
+    description: '/agent-statusの互換短縮形'
   },
   {
     alias: 'cc',
-    command: 'claude-clear',
-    description: '/claude-clearの短縮形'
+    command: 'agent-clear',
+    description: '/agent-clearの互換短縮形'
   },
   {
     alias: 'csp',
-    command: 'claude-skip-permissions',
-    description: '/claude-skip-permissionsの短縮形'
+    command: 'agent-skip-permissions',
+    description: '/agent-skip-permissionsの互換短縮形'
   },
   {
     alias: 'ct',
-    command: 'claude-tool',
-    description: '/claude-toolの短縮形'
+    command: 'agent-tool',
+    description: '/agent-toolの互換短縮形'
   }
 ];
 

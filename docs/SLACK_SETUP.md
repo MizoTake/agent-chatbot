@@ -51,27 +51,37 @@
 
 以下のコマンドを追加：
 
-1. `/claude`
-   - Command: `/claude`
-   - Short Description: Chat with Claude
+1. `/agent`
+   - Command: `/agent`
+   - Short Description: Chat with Agent
    - Usage Hint: [your message]
 
-2. `/claude-repo`
-   - Command: `/claude-repo`
+2. `/agent-repo`
+   - Command: `/agent-repo`
    - Short Description: Manage repository connection
    - Usage Hint: [git-url | status | delete | reset]
 
-3. `/claude-help`
-   - Command: `/claude-help`
+3. `/agent-help`
+   - Command: `/agent-help`
    - Short Description: Show help
 
-4. `/claude-status`
-   - Command: `/claude-status`
+4. `/agent-status`
+   - Command: `/agent-status`
    - Short Description: Check system status
 
-5. `/claude-clear`
-   - Command: `/claude-clear`
+5. `/agent-clear`
+   - Command: `/agent-clear`
    - Short Description: Clear conversation context
+
+6. `/agent-tool`
+   - Command: `/agent-tool`
+   - Short Description: List or switch tools
+
+7. `/agent-skip-permissions`
+   - Command: `/agent-skip-permissions`
+   - Short Description: Toggle dangerous skip permissions mode
+
+※ 互換用として `/claude*` 系を併用する場合は同様にSlack側へ追加してください。
 
 ### 6. Basic Informationからの設定
 

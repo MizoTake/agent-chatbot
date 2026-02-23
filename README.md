@@ -1,16 +1,16 @@
-# Claude Slack/Discord ボット
+# Agent Chatbot
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue)](https://www.typescriptlang.org/)
 
-Claude CLIをSlackとDiscordに統合し、Gitリポジトリのコンテキスト認識機能を備えたAIアシスタントを提供するマルチプラットフォームボットです。
+Claude / Codex / vibe-local などのCLIエージェントをSlackとDiscordに統合し、Gitリポジトリのコンテキスト認識機能を備えたAIアシスタントを提供するマルチプラットフォームボットです。
 
 ## 🌟 機能
 
 - **マルチプラットフォーム対応**: SlackとDiscordの両方で動作
 - **リポジトリコンテキスト**: チャンネルごとにGitリポジトリをクローンして管理
-- **マルチAI CLI統合**: Claudeを既定に、設定次第でGemini/Aider等にも接続可能
+- **マルチAI CLI統合**: Claude / Codex / vibe-local を既定サポート（設定次第でGemini/Aider等も追加可能）
 - **スレッド管理**: スレッド内で会話のコンテキストを維持
 - **Socket Mode**: パブリックURLを必要としない簡単なセットアップ（Slack）
 - **グレースフルシャットダウン**: 適切なシグナル処理とクリーンアップ
@@ -21,7 +21,11 @@ Claude CLIをSlackとDiscordに統合し、Gitリポジトリのコンテキス�
 ## 📦 必要な環境
 
 - Node.js 18以上とnpm
-- [Claude CLI](https://claude.ai/download) がインストールされ設定済みであること
+- 次のいずれか1つ以上のCLIが利用可能であること
+  - [Claude CLI](https://claude.ai/download)
+  - [Codex CLI](https://github.com/openai/codex)
+  - [vibe-local](https://github.com/ochyai/vibe-local)（利用時は Ollama も必要）
+  - Claude以外を既定にする場合は `AGENT_CHATBOT_TOOLS_DEFAULTTOOL` か `/agent-tool use <name>` で切り替え
 - Slack用: 管理者アクセス権限を持つワークスペース
 - Discord用: ボット管理権限を持つサーバー
 - Git（リポジトリ機能用）
@@ -100,32 +104,39 @@ npm start
 - **ダイレクトメッセージ**: ボットに直接メッセージを送信
 - **チャンネルメンション**: `@ボット名 メッセージ`
 - **スラッシュコマンド**:
-  - `/claude <プロンプト>` - 現在の既定ツールでプロンプトを送信
-  - `/claude --tool <name> <プロンプト>` - 1回だけ実行ツールを指定
-  - `/claude-tool status` - 現在の有効ツールを確認
-  - `/claude-tool list` - 設定済みツールとCLI検出状態を確認
-  - `/claude-tool use <name>` - このチャンネルの既定ツールを変更
-  - `/claude-tool clear` - チャンネル既定ツールを解除
-  - `/claude-repo <URL>` - リポジトリをクローンしてリンク
-  - `/claude-repo status` - リポジトリの状態を確認
-  - `/claude-repo delete` - リポジトリのリンクを削除
-  - `/claude-repo reset` - すべてのチャンネルのリポジトリリンクをリセット
-  - `/claude-help` - コマンドのヘルプを表示
-  - `/claude-status` - Claude CLIとリポジトリの状態を確認
-  - `/claude-clear` - 会話のコンテキストをクリア
-  - `/claude-skip-permissions` - --dangerously-skip-permissionsフラグの切り替え
-  - `/claude-skip-permissions on/off` - 権限スキップモードの有効化/無効化
-    - ⚠️ **注意**: root権限で実行時は、`CLAUDE_FORCE_ALLOW_ROOT=true`を設定するか、`CLAUDE_RUN_AS_USER`で別ユーザーを指定してください
+  - `/agent <プロンプト>` - 現在の既定ツールでプロンプトを送信
+  - `/agent --tool <name> <プロンプト>` - 1回だけ実行ツールを指定（例: `claude` / `codex` / `vibe-local`）
+  - `/agent-tool status` - 現在の有効ツールを確認
+  - `/agent-tool list` - 設定済みツールとCLI検出状態を確認
+  - `/agent-tool use <name>` - このチャンネルの既定ツールを変更
+  - `/agent-tool clear` - チャンネル既定ツールを解除
+  - `/agent-repo <URL>` - リポジトリをクローンしてリンク
+  - `/agent-repo status` - リポジトリの状態を確認
+  - `/agent-repo delete` - リポジトリのリンクを削除
+  - `/agent-repo reset` - すべてのチャンネルのリポジトリリンクをリセット
+  - `/agent-help` - コマンドのヘルプを表示
+  - `/agent-status` - 現在の有効ツールとリポジトリの状態を確認
+  - `/agent-clear` - 会話のコンテキストをクリア
+  - `/agent-skip-permissions` - --dangerously-skip-permissionsフラグの切り替え
+  - `/agent-skip-permissions on/off` - 権限スキップモードの有効化/無効化
+    - ⚠️ **注意**: root権限で実行時は、`CLAUDE_FORCE_ALLOW_ROOT=true`を設定するか、`CLAUDE_RUN_AS_USER`で別ユーザーを指定してください（この設定は `supportsSkipPermissions=true` のツールに適用）
+  - 互換エイリアスとして `/claude*` 系コマンドも引き続き利用可能
+
+利用ツールを切り替える例:
+```text
+/agent-tool list
+/agent-tool use codex
+```
 
 ### リポジトリ統合
 
-チャンネルにGitリポジトリをリンクしてClaudeにコンテキストを提供:
+チャンネルにGitリポジトリをリンクして、現在有効なCLIツールにコンテキストを提供:
 
 ```
-/claude-repo https://github.com/user/repo.git
+/agent-repo https://github.com/user/repo.git
 ```
 
-一度リンクされると、そのチャンネルでのすべてのClaudeコマンドがリポジトリのコードにアクセスできるようになります。
+一度リンクされると、そのチャンネルでのすべての `/agent` コマンドがリポジトリのコードにアクセスできるようになります。
 
 ## ⚙️ 設定
 
@@ -144,10 +155,20 @@ npm start
 - `LOG_LEVEL`: ログレベル（debug/info/warn/error）
 - `LOG_FORMAT`: ログ形式（human/json）
 - `DEBUG`: デバッグ出力を有効化（true/false）
+- `AGENT_CHATBOT_TOOLS_DEFAULTTOOL`: 既定ツール名（例: `claude`, `codex`, `vibe-local`）
 
-**Claude権限設定:**
+**権限設定（Claude CLI利用時）:**
 - `CLAUDE_FORCE_ALLOW_ROOT`: root権限での--dangerously-skip-permissions使用を許可（true/false）
 - `CLAUDE_RUN_AS_USER`: --dangerously-skip-permissions使用時に実行するユーザー名（デフォルト: agent-chatbot）
+
+**vibe-local設定（必要な場合）:**
+- `OLLAMA_HOST`: Ollama API endpoint
+- `VIBE_LOCAL_MODEL`: メインモデル
+- `VIBE_LOCAL_SIDECAR_MODEL`: サイドカーモデル
+- `VIBE_LOCAL_DEBUG`: デバッグログ（`1`で有効）
+
+**Codex設定（必要な場合）:**
+- `CODEX_API_KEY`: Codex CLIをAPIキー運用する場合のみ設定
 
 ### ファイル構造
 
@@ -160,7 +181,7 @@ agent-chatbot/
 │   ├── services/        # ビジネスロジックサービス
 │   ├── utils/           # ユーティリティ関数
 │   ├── BotManager.ts    # ボット中央コーディネーター
-│   ├── toolCLIClient.ts # AIツールCLIラッパー（Claude/Gemini等）
+│   ├── toolCLIClient.ts # AIツールCLIラッパー（Claude/Codex/vibe-local等）
 │   └── index.ts         # アプリケーションエントリーポイント
 ├── config/              # 設定ファイル
 ├── docs/                # ドキュメント
@@ -170,11 +191,12 @@ agent-chatbot/
 
 ### 追加ツールの設定例
 
-`agent-chatbot.yml` の `tools.definitions` にCLI定義を追加すると、Claude/Codex以外のツールも利用できます。
+デフォルトで `claude` / `codex` / `vibe-local` は定義済みです。  
+`agent-chatbot.yml` の `tools.definitions` にCLI定義を追加すると、さらに他のツールも利用できます。
 
 ```yaml
 tools:
-  defaultTool: claude
+  defaultTool: codex
   definitions:
     gemini:
       command: gemini
@@ -193,7 +215,7 @@ tools:
 - [タイムアウト設定](./docs/TIMEOUT_LIMITS.md)
 - [開発ガイド](./CLAUDE.md)
 
-## 🔒 権限設定 (root環境での実行)
+## 🔒 権限設定 (root環境での実行・Claude CLI利用時)
 
 root権限で実行する場合、`--dangerously-skip-permissions`フラグを使用するには専用ユーザーのセットアップが必要です：
 
@@ -216,7 +238,7 @@ sudo ./scripts/setup-claude-for-nobody.sh
 
 ### ボットが応答しない
 1. 環境変数が正しく設定されているか確認
-2. Claude CLIがインストールされているか確認: `claude --version`
+2. 使用するCLIがインストールされているか確認（例: `claude --version` / `codex --version` / `vibe-local --version`）
 3. ログを確認: `npm run dev`
 4. ボットがチャンネル/サーバーに招待されているか確認
 5. チャンネル/サーバー設定でボットの権限を確認

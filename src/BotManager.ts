@@ -2,7 +2,7 @@ import { BotAdapter, BotMessage, BotResponse } from './interfaces/BotInterface';
 import { SlackAdapter } from './adapters/SlackAdapter';
 import { DiscordAdapter } from './adapters/DiscordAdapter';
 import { ToolCLIClient, ToolConfig } from './toolCLIClient';
-import { StorageService } from './services/StorageService';
+import { ChannelRepository, StorageService } from './services/StorageService';
 import { ToolPreferenceService } from './services/ToolPreferenceService';
 import { GitService } from './services/GitService';
 import { createLogger } from './utils/logger';
@@ -13,6 +13,12 @@ const logger = createLogger('BotManager');
 interface ParsedPrompt {
   prompt: string;
   toolOverride?: string;
+  error?: string;
+}
+
+interface ResolvedRepository {
+  repository?: ChannelRepository;
+  restored?: boolean;
   error?: string;
 }
 
@@ -92,7 +98,7 @@ export class BotManager {
     if (!prompt) {
       return {
         prompt: '',
-        error: '`--tool` 指定時はプロンプトも入力してください。例: `/claude --tool gemini 修正案を出して`'
+        error: '`--tool` 指定時はプロンプトも入力してください。例: `/agent --tool codex 修正案を出して`'
       };
     }
 
@@ -133,6 +139,55 @@ export class BotManager {
     };
   }
 
+  private async resolveChannelRepository(channelId: string): Promise<ResolvedRepository> {
+    const repository = this.storageService.getChannelRepository(channelId);
+    if (!repository) {
+      return {};
+    }
+
+    if (this.gitService.repositoryExists(repository.localPath)) {
+      return { repository };
+    }
+
+    logger.warn('Repository localPath not found. Re-cloning linked repository', {
+      channelId,
+      repositoryUrl: repository.repositoryUrl,
+      missingLocalPath: repository.localPath
+    });
+
+    const cloneResult = await this.gitService.cloneRepository(repository.repositoryUrl, channelId);
+    if (!cloneResult.success || !cloneResult.localPath) {
+      logger.error(
+        'Failed to re-clone repository for missing localPath',
+        cloneResult.error,
+        {
+          channelId,
+          repositoryUrl: repository.repositoryUrl,
+          missingLocalPath: repository.localPath
+        }
+      );
+      return {
+        repository,
+        error: cloneResult.error || '不明なエラー'
+      };
+    }
+
+    this.storageService.setChannelRepository(channelId, repository.repositoryUrl, cloneResult.localPath);
+    const restoredRepository = this.storageService.getChannelRepository(channelId);
+
+    logger.info('Repository re-cloned and channel mapping updated', {
+      channelId,
+      repositoryUrl: repository.repositoryUrl,
+      oldLocalPath: repository.localPath,
+      newLocalPath: cloneResult.localPath
+    });
+
+    return {
+      repository: restoredRepository,
+      restored: true
+    };
+  }
+
   private async handlePromptRequest(
     bot: BotAdapter,
     message: BotMessage,
@@ -147,8 +202,15 @@ export class BotManager {
       return this.getUnknownToolResponse(parsed.toolOverride);
     }
 
+    const resolvedRepository = await this.resolveChannelRepository(message.channelId);
+    if (resolvedRepository.error) {
+      return {
+        text: `❌ リポジトリのローカルパスが見つからず、再クローンに失敗しました: ${resolvedRepository.error}`
+      };
+    }
+
     const toolName = this.getEffectiveToolName(message.channelId, parsed.toolOverride);
-    const repo = this.storageService.getChannelRepository(message.channelId);
+    const repo = resolvedRepository.repository;
     const workingDirectory = repo?.localPath;
 
     const onBackgroundComplete = async (bgResult: any) => {
@@ -198,6 +260,13 @@ export class BotManager {
   }
 
   private setupBot(bot: BotAdapter): void {
+    const registerCommandAliases = (
+      commands: string[],
+      handler: (message: BotMessage) => Promise<BotResponse | null>
+    ): void => {
+      commands.forEach(command => bot.onCommand(command, handler));
+    };
+
     bot.onMessage(async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text) {
         return {
@@ -208,17 +277,17 @@ export class BotManager {
       return this.handlePromptRequest(bot, message, false);
     });
 
-    bot.onCommand('claude', async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent', 'claude'], async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text) {
         return {
-          text: '📝 Please provide a prompt. Usage: `/claude <your prompt>` or `/claude --tool <tool> <your prompt>`'
+          text: '📝 Please provide a prompt. Usage: `/agent <your prompt>` or `/agent --tool <tool> <your prompt>`'
         };
       }
 
       return this.handlePromptRequest(bot, message, true);
     });
 
-    bot.onCommand('claude-tool', async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-tool', 'claude-tool'], async (message: BotMessage): Promise<BotResponse | null> => {
       const input = message.text?.trim() || 'status';
       const [action, value] = input.split(/\s+/, 2);
       const availableTools = this.toolClient.listTools();
@@ -275,7 +344,7 @@ export class BotManager {
       if (action === 'use') {
         if (!value) {
           return {
-            text: '❌ 使用するツール名を指定してください。例: `/claude-tool use gemini`'
+            text: '❌ 使用するツール名を指定してください。例: `/agent-tool use codex`'
           };
         }
 
@@ -301,11 +370,11 @@ export class BotManager {
       return {
         text:
           '❌ 無効なサブコマンドです。\n' +
-          '使用方法: `/claude-tool status` `/claude-tool list` `/claude-tool use <tool>` `/claude-tool clear`'
+          '使用方法: `/agent-tool status` `/agent-tool list` `/agent-tool use <tool>` `/agent-tool clear`'
       };
     });
 
-    bot.onCommand('claude-help', async (): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-help', 'claude-help'], async (): Promise<BotResponse | null> => {
       return {
         text: 'Agent Chatbot ヘルプ',
         blocks: [
@@ -314,29 +383,38 @@ export class BotManager {
             text: {
               type: 'mrkdwn',
               text: '*利用可能なコマンド:*\n\n' +
-                '• `/claude <プロンプト>` - 現在の既定ツールで実行\n' +
-                '• `/claude --tool <name> <プロンプト>` - 1回だけツールを切り替えて実行\n' +
-                '• `/claude-tool status` - 現在の有効ツールを表示\n' +
-                '• `/claude-tool list` - 設定済みツール一覧とCLI検出状態を表示\n' +
-                '• `/claude-tool use <name>` - このチャンネルの既定ツールを設定\n' +
-                '• `/claude-tool clear` - チャンネル既定を解除（全体既定へ）\n' +
-                '• `/claude-repo <URL>` - Gitリポジトリをクローンしてチャンネルにリンク\n' +
-                '• `/claude-repo status` - 現在のリポジトリ状態を確認\n' +
-                '• `/claude-repo delete` - このチャンネルのリポジトリリンクを削除\n' +
-                '• `/claude-repo reset` - すべてのリポジトリリンクをリセット\n' +
-                '• `/claude-status` - ツールCLIとリポジトリの状態を確認\n' +
-                '• `/claude-clear` - 会話のコンテキストをクリア\n' +
-                '• `/claude-help` - このヘルプを表示\n'
+                '• `/agent <プロンプト>` - 現在の既定ツールで実行\n' +
+                '• `/agent --tool <name> <プロンプト>` - 1回だけツールを切り替えて実行\n' +
+                '• `/agent-tool status` - 現在の有効ツールを表示\n' +
+                '• `/agent-tool list` - 設定済みツール一覧とCLI検出状態を表示\n' +
+                '• `/agent-tool use <name>` - このチャンネルの既定ツールを設定\n' +
+                '• `/agent-tool clear` - チャンネル既定を解除（全体既定へ）\n' +
+                '• `/agent-repo <URL>` - Gitリポジトリをクローンしてチャンネルにリンク\n' +
+                '• `/agent-repo status` - 現在のリポジトリ状態を確認\n' +
+                '• `/agent-repo delete` - このチャンネルのリポジトリリンクを削除\n' +
+                '• `/agent-repo reset` - すべてのリポジトリリンクをリセット\n' +
+                '• `/agent-status` - ツールCLIとリポジトリの状態を確認\n' +
+                '• `/agent-clear` - 会話のコンテキストをクリア\n' +
+                '• `/agent-help` - このヘルプを表示\n\n' +
+                '_互換エイリアスとして `/claude*` 系コマンドも利用できます。_'
             }
           }
         ]
       };
     });
 
-    bot.onCommand('claude-status', async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-status', 'claude-status'], async (message: BotMessage): Promise<BotResponse | null> => {
       const currentTool = this.getEffectiveToolName(message.channelId);
       const isAvailable = await this.toolClient.checkAvailability(currentTool);
-      const repo = this.storageService.getChannelRepository(message.channelId);
+      const resolvedRepository = await this.resolveChannelRepository(message.channelId);
+
+      if (resolvedRepository.error) {
+        return {
+          text: `❌ リポジトリのローカルパスが見つからず、再クローンに失敗しました: ${resolvedRepository.error}`
+        };
+      }
+
+      const repo = resolvedRepository.repository;
 
       let statusText = `*有効ツール:* \`${currentTool}\` ${isAvailable ? '✅ 利用可能' : '❌ 利用不可'}\n`;
       statusText += `*チャンネルID:* ${message.channelId}\n`;
@@ -344,6 +422,9 @@ export class BotManager {
       if (repo) {
         statusText += `*リンクされたリポジトリ:* ${repo.repositoryUrl}\n`;
         statusText += `*リポジトリパス:* ${repo.localPath}`;
+        if (resolvedRepository.restored) {
+          statusText += '\n*補足:* localPath が存在しなかったため再クローンしました';
+        }
       } else {
         statusText += '*リンクされたリポジトリ:* なし';
       }
@@ -362,7 +443,7 @@ export class BotManager {
       };
     });
 
-    bot.onCommand('claude-clear', async (): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-clear', 'claude-clear'], async (): Promise<BotResponse | null> => {
       return {
         text: '🧹 会話コンテキストをクリアしました',
         blocks: [
@@ -378,7 +459,7 @@ export class BotManager {
       };
     });
 
-    bot.onCommand('claude-skip-permissions', async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-skip-permissions', 'claude-skip-permissions'], async (message: BotMessage): Promise<BotResponse | null> => {
       const action = message.text?.trim().toLowerCase();
 
       if (action === 'on' || action === 'enable') {
@@ -396,9 +477,9 @@ export class BotManager {
               text: {
                 type: 'mrkdwn',
                 text: '**使用方法:**\n' +
-                  '• `/claude-skip-permissions` - 現在の設定を切り替え\n' +
-                  '• `/claude-skip-permissions on` - 有効化\n' +
-                  '• `/claude-skip-permissions off` - 無効化'
+                  '• `/agent-skip-permissions` - 現在の設定を切り替え\n' +
+                  '• `/agent-skip-permissions on` - 有効化\n' +
+                  '• `/agent-skip-permissions off` - 無効化'
               }
             }
           ]
@@ -425,19 +506,19 @@ export class BotManager {
       };
     });
 
-    bot.onCommand('claude-repo', async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-repo', 'claude-repo'], async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text) {
         return {
-          text: '📝 使い方: `/claude-repo <リポジトリURL>` でクローン、`/claude-repo status` で状態確認',
+          text: '📝 使い方: `/agent-repo <リポジトリURL>` でクローン、`/agent-repo status` で状態確認',
           blocks: [
             {
               type: 'section',
               text: {
                 type: 'mrkdwn',
                 text: '*リポジトリ管理コマンド*\n\n' +
-                  '• `/claude-repo <リポジトリURL>` - リポジトリをクローンしてチャンネルに紐付け\n' +
-                  '• `/claude-repo status` - 現在のリポジトリ状態を確認\n' +
-                  '• `/claude-repo delete` - チャンネルとリポジトリの紐付けを削除'
+                  '• `/agent-repo <リポジトリURL>` - リポジトリをクローンしてチャンネルに紐付け\n' +
+                  '• `/agent-repo status` - 現在のリポジトリ状態を確認\n' +
+                  '• `/agent-repo delete` - チャンネルとリポジトリの紐付けを削除'
               }
             }
           ]
@@ -447,7 +528,14 @@ export class BotManager {
       const args = message.text.trim().toLowerCase();
 
       if (args === 'status') {
-        const repo = this.storageService.getChannelRepository(message.channelId);
+        const resolvedRepository = await this.resolveChannelRepository(message.channelId);
+        if (resolvedRepository.error) {
+          return {
+            text: `❌ リポジトリのローカルパスが見つからず、再クローンに失敗しました: ${resolvedRepository.error}`
+          };
+        }
+
+        const repo = resolvedRepository.repository;
         if (!repo) {
           return {
             text: '❌ このチャンネルにはリポジトリが設定されていません'
@@ -470,7 +558,8 @@ export class BotManager {
                 type: 'mrkdwn',
                 text: `*リポジトリ情報*\n\n` +
                   `URL: ${repo.repositoryUrl}\n` +
-                  `クローン日時: ${new Date(repo.createdAt).toLocaleString('ja-JP')}\n\n` +
+                  `クローン日時: ${new Date(repo.createdAt).toLocaleString('ja-JP')}\n` +
+                  `${resolvedRepository.restored ? '補足: localPath が存在しなかったため再クローンしました\n' : ''}\n` +
                   `*Git状態*\n\`\`\`${status.status}\`\`\``
               }
             }

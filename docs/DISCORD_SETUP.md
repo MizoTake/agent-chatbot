@@ -89,6 +89,6 @@ DISCORD_BOT_TOKEN=your-discord-bot-token
 ## 動作確認
 
 1. Discordサーバーでボットがオンラインになっているか確認
-2. `/claude Hello`でテスト
+2. `/agent Hello`でテスト
 3. ボットにDMを送信してテスト
 4. ボットをメンション（@ボット名）してテスト

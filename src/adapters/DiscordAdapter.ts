@@ -126,29 +126,51 @@ export class DiscordAdapter implements BotAdapter {
   private async registerSlashCommands(): Promise<void> {
     const commands = [
       {
-        name: 'claude',
-        description: 'Chat with Claude',
+        name: 'agent',
+        description: 'Chat with Agent',
         options: [{
           name: 'prompt',
           type: 3, // STRING type
-          description: 'Your message to Claude',
+          description: 'Your message to the agent',
           required: true,
         }],
       },
       {
-        name: 'claude-help',
+        name: 'claude',
+        description: 'Chat with Agent (legacy alias)',
+        options: [{
+          name: 'prompt',
+          type: 3, // STRING type
+          description: 'Your message to the agent',
+          required: true,
+        }],
+      },
+      {
+        name: 'agent-help',
         description: 'Agent Chatbotのヘルプを表示',
       },
       {
-        name: 'claude-status',
-        description: 'Claude CLIとリポジトリの状態を確認',
+        name: 'claude-help',
+        description: 'Agent Chatbotのヘルプを表示 (互換)',
       },
       {
-        name: 'claude-clear',
+        name: 'agent-status',
+        description: '利用ツールとリポジトリの状態を確認',
+      },
+      {
+        name: 'claude-status',
+        description: '利用ツールとリポジトリの状態を確認 (互換)',
+      },
+      {
+        name: 'agent-clear',
         description: '会話のコンテキストをクリア',
       },
       {
-        name: 'claude-repo',
+        name: 'claude-clear',
+        description: '会話のコンテキストをクリア (互換)',
+      },
+      {
+        name: 'agent-repo',
         description: 'Manage repository for this channel',
         options: [{
           name: 'prompt',
@@ -158,7 +180,17 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'claude-skip-permissions',
+        name: 'claude-repo',
+        description: 'Manage repository for this channel (legacy alias)',
+        options: [{
+          name: 'prompt',
+          type: 3, // STRING type
+          description: 'Repository URL to clone or "status" to check current repo',
+          required: true,
+        }],
+      },
+      {
+        name: 'agent-skip-permissions',
         description: 'Toggle --dangerously-skip-permissions flag',
         options: [{
           name: 'prompt',
@@ -168,12 +200,32 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'claude-tool',
+        name: 'claude-skip-permissions',
+        description: 'Toggle --dangerously-skip-permissions flag (legacy alias)',
+        options: [{
+          name: 'prompt',
+          type: 3, // STRING type
+          description: 'on/enable to turn on, off/disable to turn off, or leave empty to toggle',
+          required: false,
+        }],
+      },
+      {
+        name: 'agent-tool',
         description: '利用ツールの表示・切替 (list/status/use/clear)',
         options: [{
           name: 'prompt',
           type: 3, // STRING type
-          description: '例: list / status / use gemini / clear',
+          description: '例: list / status / use codex / clear',
+          required: false,
+        }],
+      },
+      {
+        name: 'claude-tool',
+        description: '利用ツールの表示・切替 (互換)',
+        options: [{
+          name: 'prompt',
+          type: 3, // STRING type
+          description: '例: list / status / use codex / clear',
           required: false,
         }],
       },

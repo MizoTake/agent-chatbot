@@ -62,12 +62,12 @@ commands:
   
   # カスタムエイリアス
   customAliases:
-    # 例: "/ai" を "/claude" にマップ
-    ai: claude
-    # 例: "/git" を "/claude-repo" にマップ
-    git: claude-repo
+    # 例: "/ai" を "/agent" にマップ
+    ai: agent
+    # 例: "/git" を "/agent-repo" にマップ
+    git: agent-repo
 
-# ツール実行設定（Claude/Codex以外も追加可能）
+# ツール実行設定（Claude/Codex/vibe-local以外も追加可能）
 tools:
   # 未指定時に使うツール
   defaultTool: claude
@@ -96,3 +96,17 @@ tools:
       args: ["--message", "{prompt}"]
       versionArgs: ["--version"]
       description: Aider CLI
+
+    # OpenAI Codex CLI
+    codex:
+      command: codex
+      args: ["exec", "{prompt}"]
+      versionArgs: ["--version"]
+      description: OpenAI Codex CLI
+
+    # vibe-local (Ollama)
+    vibe-local:
+      command: vibe-local
+      args: ["-p", "{prompt}"]
+      versionArgs: ["--version"]
+      description: vibe-local CLI (Ollama)

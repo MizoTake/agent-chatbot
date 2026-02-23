@@ -18,23 +18,33 @@ export class SlackAdapter implements BotAdapter {
   }
 
   private setupEventHandlers(): void {
-    // Handle slash commands
-    this.app.command('/claude', async ({ command, ack, respond }) => {
-      await ack();
-      
-      const botMessage: BotMessage = {
-        text: command.text || '',
-        channelId: command.channel_id,
-        userId: command.user_id,
-        isDirectMessage: command.channel_name === 'directmessage',
-        isMention: false,
-        isCommand: true,
-        commandName: 'claude',
-      };
+    const registerSlashCommand = (
+      slashCommand: string,
+      commandName: string,
+      initialResponseText?: string
+    ): void => {
+      this.app.command(slashCommand, async ({ command, ack, respond }) => {
+        await ack();
 
-      const handler = this.commandHandlers.get('claude');
-      if (handler) {
-        await respond({ text: '🤔 Thinking...' });
+        const botMessage: BotMessage = {
+          text: command.text || '',
+          channelId: command.channel_id,
+          userId: command.user_id,
+          isDirectMessage: command.channel_name === 'directmessage',
+          isMention: false,
+          isCommand: true,
+          commandName,
+        };
+
+        const handler = this.commandHandlers.get(commandName);
+        if (!handler) {
+          return;
+        }
+
+        if (initialResponseText) {
+          await respond({ text: initialResponseText });
+        }
+
         const response = await handler(botMessage);
         if (response) {
           await respond({
@@ -42,162 +52,23 @@ export class SlackAdapter implements BotAdapter {
             blocks: response.blocks,
           });
         }
-      }
-    });
+      });
+    };
 
-    // /claude-help command
-    this.app.command('/claude-help', async ({ command, ack, respond }) => {
-      await ack();
-      
-      const botMessage: BotMessage = {
-        text: command.text || '',
-        channelId: command.channel_id,
-        userId: command.user_id,
-        isDirectMessage: command.channel_name === 'directmessage',
-        isMention: false,
-        isCommand: true,
-        commandName: 'claude-help',
-      };
-
-      const handler = this.commandHandlers.get('claude-help');
-      if (handler) {
-        const response = await handler(botMessage);
-        if (response) {
-          await respond({
-            text: response.text,
-            blocks: response.blocks,
-          });
-        }
-      }
-    });
-
-    // /claude-status command
-    this.app.command('/claude-status', async ({ command, ack, respond }) => {
-      await ack();
-      
-      const botMessage: BotMessage = {
-        text: command.text || '',
-        channelId: command.channel_id,
-        userId: command.user_id,
-        isDirectMessage: command.channel_name === 'directmessage',
-        isMention: false,
-        isCommand: true,
-        commandName: 'claude-status',
-      };
-
-      const handler = this.commandHandlers.get('claude-status');
-      if (handler) {
-        const response = await handler(botMessage);
-        if (response) {
-          await respond({
-            text: response.text,
-            blocks: response.blocks,
-          });
-        }
-      }
-    });
-
-    // /claude-clear command
-    this.app.command('/claude-clear', async ({ command, ack, respond }) => {
-      await ack();
-      
-      const botMessage: BotMessage = {
-        text: command.text || '',
-        channelId: command.channel_id,
-        userId: command.user_id,
-        isDirectMessage: command.channel_name === 'directmessage',
-        isMention: false,
-        isCommand: true,
-        commandName: 'claude-clear',
-      };
-
-      const handler = this.commandHandlers.get('claude-clear');
-      if (handler) {
-        const response = await handler(botMessage);
-        if (response) {
-          await respond({
-            text: response.text,
-            blocks: response.blocks,
-          });
-        }
-      }
-    });
-
-    this.app.command('/claude-repo', async ({ command, ack, respond }) => {
-      await ack();
-      
-      const botMessage: BotMessage = {
-        text: command.text || '',
-        channelId: command.channel_id,
-        userId: command.user_id,
-        isDirectMessage: command.channel_name === 'directmessage',
-        isMention: false,
-        isCommand: true,
-        commandName: 'claude-repo',
-      };
-
-      const handler = this.commandHandlers.get('claude-repo');
-      if (handler) {
-        await respond({ text: '🔄 Processing repository command...' });
-        const response = await handler(botMessage);
-        if (response) {
-          await respond({
-            text: response.text,
-            blocks: response.blocks,
-          });
-        }
-      }
-    });
-
-    this.app.command('/claude-skip-permissions', async ({ command, ack, respond }) => {
-      await ack();
-      
-      const botMessage: BotMessage = {
-        text: command.text || '',
-        channelId: command.channel_id,
-        userId: command.user_id,
-        isDirectMessage: command.channel_name === 'directmessage',
-        isMention: false,
-        isCommand: true,
-        commandName: 'claude-skip-permissions',
-      };
-
-      const handler = this.commandHandlers.get('claude-skip-permissions');
-      if (handler) {
-        const response = await handler(botMessage);
-        if (response) {
-          await respond({
-            text: response.text,
-            blocks: response.blocks,
-          });
-        }
-      }
-    });
-
-    this.app.command('/claude-tool', async ({ command, ack, respond }) => {
-      await ack();
-
-      const botMessage: BotMessage = {
-        text: command.text || '',
-        channelId: command.channel_id,
-        userId: command.user_id,
-        isDirectMessage: command.channel_name === 'directmessage',
-        isMention: false,
-        isCommand: true,
-        commandName: 'claude-tool',
-      };
-
-      const handler = this.commandHandlers.get('claude-tool');
-      if (handler) {
-        const response = await handler(botMessage);
-        if (response) {
-          await respond({
-            text: response.text,
-            blocks: response.blocks,
-          });
-        }
-      }
-    });
+    registerSlashCommand('/agent', 'agent', '🤔 Thinking...');
+    registerSlashCommand('/claude', 'claude', '🤔 Thinking...');
+    registerSlashCommand('/agent-help', 'agent-help');
+    registerSlashCommand('/claude-help', 'claude-help');
+    registerSlashCommand('/agent-status', 'agent-status');
+    registerSlashCommand('/claude-status', 'claude-status');
+    registerSlashCommand('/agent-clear', 'agent-clear');
+    registerSlashCommand('/claude-clear', 'claude-clear');
+    registerSlashCommand('/agent-repo', 'agent-repo', '🔄 Processing repository command...');
+    registerSlashCommand('/claude-repo', 'claude-repo', '🔄 Processing repository command...');
+    registerSlashCommand('/agent-skip-permissions', 'agent-skip-permissions');
+    registerSlashCommand('/claude-skip-permissions', 'claude-skip-permissions');
+    registerSlashCommand('/agent-tool', 'agent-tool');
+    registerSlashCommand('/claude-tool', 'claude-tool');
 
     // Handle app mentions
     this.app.event('app_mention', async ({ event, client }) => {

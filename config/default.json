@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "Claude Chatbot",
+    "name": "Agent Chatbot",
     "version": "1.0.0",
     "environment": "development"
   },
@@ -21,6 +21,18 @@
         "versionArgs": ["--version"],
         "description": "Anthropic Claude CLI",
         "supportsSkipPermissions": true
+      },
+      "codex": {
+        "command": "codex",
+        "args": ["exec", "{prompt}"],
+        "versionArgs": ["--version"],
+        "description": "OpenAI Codex CLI"
+      },
+      "vibe-local": {
+        "command": "vibe-local",
+        "args": ["-p", "{prompt}"],
+        "versionArgs": ["--version"],
+        "description": "vibe-local CLI (Ollama)"
       }
     }
   },
