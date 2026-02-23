@@ -6,7 +6,7 @@
   },
   "claude": {
     "command": "claude",
-    "timeout": 900000,
+    "timeout": 3600000,
     "maxOutputSize": 10485760,
     "dangerouslySkipPermissions": false,
     "forceAllowRoot": false,

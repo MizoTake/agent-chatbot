@@ -46,7 +46,7 @@ export class BotManager {
       logger.info('Configuration loaded successfully');
 
       const claudeCommand = process.env.CLAUDE_COMMAND || ConfigLoader.get('claude.command', 'claude');
-      const timeout = ConfigLoader.get('claude.timeout', 900000);
+      const timeout = ConfigLoader.get('claude.timeout', 3600000);
       const maxOutputSize = ConfigLoader.get('claude.maxOutputSize', 10485760);
 
       const configuredTools = ConfigLoader.get<Record<string, ToolConfig>>('tools.definitions', {});
