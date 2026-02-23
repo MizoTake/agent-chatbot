@@ -112,6 +112,7 @@ npm start
   - `/agent-tool clear` - チャンネル既定ツールを解除
   - `/agent-repo <URL>` - リポジトリをクローンしてリンク
   - `/agent-repo status` - リポジトリの状態を確認
+  - `/agent-repo tool <name>` - このチャンネル(=リポジトリ)の既定ツールを設定
   - `/agent-repo delete` - リポジトリのリンクを削除
   - `/agent-repo reset` - すべてのチャンネルのリポジトリリンクをリセット
   - `/agent-help` - コマンドのヘルプを表示
@@ -157,6 +158,11 @@ npm start
 - `DEBUG`: デバッグ出力を有効化（true/false）
 - `AGENT_CHATBOT_TOOLS_DEFAULTTOOL`: 既定ツール名（例: `claude`, `codex`, `vibe-local`）
 - `AGENT_CHATBOT_APP_NAME`: Slack/Discordの表示名を固定したい場合に指定（未指定時は既定ツール名を使用）
+
+**デフォルト実行オプション:**
+- `claude`: `--dangerously-skip-permissions --print {prompt}`
+- `codex`: `exec --sandbox danger-full-access {prompt}`
+- `vibe-local`: `-y --prompt {prompt}`
 
 **権限設定（Claude CLI利用時）:**
 - `CLAUDE_FORCE_ALLOW_ROOT`: root権限での--dangerously-skip-permissions使用を許可（true/false）

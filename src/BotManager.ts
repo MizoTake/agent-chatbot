@@ -53,7 +53,7 @@ export class BotManager {
       const mergedTools: Record<string, ToolConfig> = {
         claude: {
           command: claudeCommand,
-          args: ['--print', '{prompt}'],
+          args: ['--dangerously-skip-permissions', '--print', '{prompt}'],
           versionArgs: ['--version'],
           description: 'Anthropic Claude CLI',
           supportsSkipPermissions: true
@@ -406,6 +406,7 @@ export class BotManager {
                 '• `/agent-tool clear` - チャンネル既定を解除（全体既定へ）\n' +
                 '• `/agent-repo <URL>` - Gitリポジトリをクローンしてチャンネルにリンク\n' +
                 '• `/agent-repo status` - 現在のリポジトリ状態を確認\n' +
+                '• `/agent-repo tool <name>` - このチャンネル(=リポジトリ)の既定ツールを設定\n' +
                 '• `/agent-repo delete` - このチャンネルのリポジトリリンクを削除\n' +
                 '• `/agent-repo reset` - すべてのリポジトリリンクをリセット\n' +
                 '• `/agent-status` - ツールCLIとリポジトリの状態を確認\n' +
@@ -524,7 +525,7 @@ export class BotManager {
     registerCommandAliases(['agent-repo', 'claude-repo'], async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text) {
         return {
-          text: '📝 使い方: `/agent-repo <リポジトリURL>` でクローン、`/agent-repo status` で状態確認',
+          text: '📝 使い方: `/agent-repo <リポジトリURL>` でクローン、`/agent-repo status` で状態確認、`/agent-repo tool <name>` で既定ツール設定',
           blocks: [
             {
               type: 'section',
@@ -533,6 +534,7 @@ export class BotManager {
                 text: '*リポジトリ管理コマンド*\n\n' +
                   '• `/agent-repo <リポジトリURL>` - リポジトリをクローンしてチャンネルに紐付け\n' +
                   '• `/agent-repo status` - 現在のリポジトリ状態を確認\n' +
+                  '• `/agent-repo tool <name>` - このチャンネル(=リポジトリ)の既定ツールを設定\n' +
                   '• `/agent-repo delete` - チャンネルとリポジトリの紐付けを削除'
               }
             }
@@ -540,7 +542,49 @@ export class BotManager {
         };
       }
 
-      const args = message.text.trim().toLowerCase();
+      const rawArgs = message.text.trim();
+      const args = rawArgs.toLowerCase();
+
+      if (args === 'tool') {
+        return {
+          text: '❌ ツール名を指定してください。例: `/agent-repo tool vibe-local`'
+        };
+      }
+
+      if (args.startsWith('tool ')) {
+        const requestedTool = rawArgs.split(/\s+/, 2)[1]?.trim();
+        if (!requestedTool) {
+          return {
+            text: '❌ ツール名を指定してください。例: `/agent-repo tool codex`'
+          };
+        }
+
+        const toolName = requestedTool.toLowerCase();
+
+        if (!this.toolClient.hasTool(toolName)) {
+          return this.getUnknownToolResponse(toolName);
+        }
+
+        this.toolPreferenceService.setChannelTool(message.channelId, toolName);
+        const repo = this.storageService.getChannelRepository(message.channelId);
+
+        return {
+          text: `✅ このチャンネル(=リポジトリ)の既定ツールを \`${toolName}\` に設定しました`,
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text:
+                  `*既定ツールを更新しました*\n\n` +
+                  `チャンネルID: ${message.channelId}\n` +
+                  `既定ツール: \`${toolName}\`\n` +
+                  `リンク済みリポジトリ: ${repo ? repo.repositoryUrl : '未設定'}`
+              }
+            }
+          ]
+        };
+      }
 
       if (args === 'status') {
         const resolvedRepository = await this.resolveChannelRepository(message.channelId);
@@ -556,6 +600,8 @@ export class BotManager {
             text: '❌ このチャンネルにはリポジトリが設定されていません'
           };
         }
+
+        const effectiveTool = this.getEffectiveToolName(message.channelId);
 
         const status = await this.gitService.getRepositoryStatus(repo.localPath);
         if (!status.success) {
@@ -573,6 +619,7 @@ export class BotManager {
                 type: 'mrkdwn',
                 text: `*リポジトリ情報*\n\n` +
                   `URL: ${repo.repositoryUrl}\n` +
+                  `有効ツール: \`${effectiveTool}\`\n` +
                   `クローン日時: ${new Date(repo.createdAt).toLocaleString('ja-JP')}\n` +
                   `${resolvedRepository.restored ? '補足: localPath が存在しなかったため再クローンしました\n' : ''}\n` +
                   `*Git状態*\n\`\`\`${status.status}\`\`\``

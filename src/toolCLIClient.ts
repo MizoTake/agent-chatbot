@@ -76,7 +76,7 @@ export class ToolCLIClient {
     const defaults: Record<string, ToolConfig> = {
       claude: {
         command: 'claude',
-        args: ['--print', '{prompt}'],
+        args: ['--dangerously-skip-permissions', '--print', '{prompt}'],
         versionArgs: ['--version'],
         description: 'Anthropic Claude CLI',
         supportsSkipPermissions: true
@@ -144,6 +144,24 @@ export class ToolCLIClient {
     }
 
     return ['-y', ...args];
+  }
+
+  private ensureStandardExecutionOptions(tool: ToolInfo, args: string[]): string[] {
+    let normalized = [...args];
+
+    if (tool.name === 'claude' && !normalized.includes('--dangerously-skip-permissions')) {
+      normalized = ['--dangerously-skip-permissions', ...normalized];
+    }
+
+    if (tool.name === 'codex' && !normalized.includes('--sandbox')) {
+      if (normalized[0] === 'exec') {
+        normalized = ['exec', '--sandbox', 'danger-full-access', ...normalized.slice(1)];
+      } else {
+        normalized = ['--sandbox', 'danger-full-access', ...normalized];
+      }
+    }
+
+    return this.ensureVibeLocalAutoApprove(tool, normalized);
   }
 
   private resolveRuntimeCommand(tool: ToolInfo, args: string[]): RuntimeCommand {
@@ -276,7 +294,7 @@ export class ToolCLIClient {
       });
 
       let command = tool.command;
-      let args = this.ensureVibeLocalAutoApprove(tool, this.buildArgs(tool, prompt));
+      let args = this.ensureStandardExecutionOptions(tool, this.buildArgs(tool, prompt));
 
       const forceAllowRoot = process.env.CLAUDE_FORCE_ALLOW_ROOT === 'true';
       const runAsUser = process.env.CLAUDE_RUN_AS_USER;

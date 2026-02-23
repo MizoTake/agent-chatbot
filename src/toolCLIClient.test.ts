@@ -112,3 +112,36 @@ test('ToolCLIClient: vibe-local実行時は-yを自動付与する', () => {
     client.cleanup();
   }
 });
+
+test('ToolCLIClient: claude/codex実行時に標準オプションを自動付与する', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+
+  try {
+    const ensure = (client as any).ensureStandardExecutionOptions.bind(client);
+    const claudeTool = {
+      name: 'claude',
+      command: 'claude',
+      args: ['--print', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: true
+    };
+    const codexTool = {
+      name: 'codex',
+      command: 'codex',
+      args: ['exec', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: false
+    };
+
+    assert.deepEqual(
+      ensure(claudeTool, ['--print', 'hello']),
+      ['--dangerously-skip-permissions', '--print', 'hello']
+    );
+    assert.deepEqual(
+      ensure(codexTool, ['exec', 'hello']),
+      ['exec', '--sandbox', 'danger-full-access', 'hello']
+    );
+  } finally {
+    client.cleanup();
+  }
+});

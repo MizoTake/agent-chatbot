@@ -17,6 +17,12 @@ View the current repository linked to the channel:
 /agent-repo status
 ```
 
+### Set Tool For This Channel/Repository
+Set the default tool for the current channel (which is linked to one repository):
+```
+/agent-repo tool vibe-local
+```
+
 ### Remove Repository Link
 Unlink the repository from the channel:
 ```

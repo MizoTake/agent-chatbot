@@ -90,5 +90,7 @@ DISCORD_BOT_TOKEN=your-discord-bot-token
 
 1. Discordサーバーでボットがオンラインになっているか確認
 2. `/agent Hello`でテスト
-3. ボットにDMを送信してテスト
-4. ボットをメンション（@ボット名）してテスト
+3. `/agent-repo https://github.com/username/repo.git` でリポジトリを紐付け
+4. `/agent-repo tool vibe-local`（または `claude` / `codex`）でチャンネル既定ツールを設定
+5. ボットにDMを送信してテスト
+6. ボットをメンション（@ボット名）してテスト

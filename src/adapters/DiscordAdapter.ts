@@ -219,7 +219,7 @@ export class DiscordAdapter implements BotAdapter {
         options: [{
           name: 'prompt',
           type: 3, // STRING type
-          description: 'Repository URL to clone or "status" to check current repo',
+          description: '例: <url> / status / tool vibe-local / delete / reset',
           required: true,
         }],
       },
@@ -229,7 +229,7 @@ export class DiscordAdapter implements BotAdapter {
         options: [{
           name: 'prompt',
           type: 3, // STRING type
-          description: 'Repository URL to clone or "status" to check current repo',
+          description: '例: <url> / status / tool vibe-local / delete / reset',
           required: true,
         }],
       },

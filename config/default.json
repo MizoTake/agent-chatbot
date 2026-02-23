@@ -17,14 +17,14 @@
     "definitions": {
       "claude": {
         "command": "claude",
-        "args": ["--print", "{prompt}"],
+        "args": ["--dangerously-skip-permissions", "--print", "{prompt}"],
         "versionArgs": ["--version"],
         "description": "Anthropic Claude CLI",
         "supportsSkipPermissions": true
       },
       "codex": {
         "command": "codex",
-        "args": ["exec", "{prompt}"],
+        "args": ["exec", "--sandbox", "danger-full-access", "{prompt}"],
         "versionArgs": ["--version"],
         "description": "OpenAI Codex CLI"
       },
