@@ -84,3 +84,31 @@ test('ToolCLIClient: checkAvailabilityがCLI検出可否を返す', async () => 
     client.cleanup();
   }
 });
+
+test('ToolCLIClient: vibe-local実行時は-yを自動付与する', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+
+  try {
+    const ensure = (client as any).ensureVibeLocalAutoApprove.bind(client);
+    const vibeTool = {
+      name: 'vibe-local',
+      command: 'vibe-local',
+      args: ['--prompt', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: false
+    };
+    const otherTool = {
+      name: 'codex',
+      command: 'codex',
+      args: ['exec', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: false
+    };
+
+    assert.deepEqual(ensure(vibeTool, ['--prompt', 'hello']), ['-y', '--prompt', 'hello']);
+    assert.deepEqual(ensure(vibeTool, ['-y', '--prompt', 'hello']), ['-y', '--prompt', 'hello']);
+    assert.deepEqual(ensure(otherTool, ['exec', 'hello']), ['exec', 'hello']);
+  } finally {
+    client.cleanup();
+  }
+});

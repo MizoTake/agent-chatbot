@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 import { withRetry, isRetryableError } from './utils/retry';
 import { createLogger } from './utils/logger';
@@ -43,6 +44,11 @@ export interface ToolInfo {
   versionArgs: string[];
   description?: string;
   supportsSkipPermissions: boolean;
+}
+
+interface RuntimeCommand {
+  command: string;
+  args: string[];
 }
 
 export class ToolCLIClient {
@@ -126,6 +132,41 @@ export class ToolCLIClient {
     }
 
     return args;
+  }
+
+  private ensureVibeLocalAutoApprove(tool: ToolInfo, args: string[]): string[] {
+    if (tool.name !== 'vibe-local') {
+      return args;
+    }
+
+    if (args.includes('-y') || args.includes('--yes')) {
+      return args;
+    }
+
+    return ['-y', ...args];
+  }
+
+  private resolveRuntimeCommand(tool: ToolInfo, args: string[]): RuntimeCommand {
+    if (process.platform !== 'win32') {
+      return { command: tool.command, args };
+    }
+
+    if (tool.name === 'vibe-local') {
+      const userProfile = process.env.USERPROFILE;
+      const scriptPath = userProfile
+        ? path.join(userProfile, '.local', 'bin', 'vibe-local.ps1')
+        : '';
+
+      if (scriptPath && fs.existsSync(scriptPath)) {
+        const normalizedArgs = args.map(arg => arg === '-p' ? '--prompt' : arg);
+        return {
+          command: 'powershell.exe',
+          args: ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...normalizedArgs]
+        };
+      }
+    }
+
+    return { command: tool.command, args };
   }
 
   private processOutput(output: string): string {
@@ -235,7 +276,7 @@ export class ToolCLIClient {
       });
 
       let command = tool.command;
-      let args = this.buildArgs(tool, prompt);
+      let args = this.ensureVibeLocalAutoApprove(tool, this.buildArgs(tool, prompt));
 
       const forceAllowRoot = process.env.CLAUDE_FORCE_ALLOW_ROOT === 'true';
       const runAsUser = process.env.CLAUDE_RUN_AS_USER;
@@ -255,9 +296,14 @@ export class ToolCLIClient {
         logger.warn('skipPermissions requested but tool does not support it', { tool: tool.name });
       }
 
+      const runtime = this.resolveRuntimeCommand(tool, args);
+      command = runtime.command;
+      args = runtime.args;
+      const useDetached = !(process.platform === 'win32' && tool.name === 'vibe-local');
+
       const spawnOptions: any = {
         cwd: workingDirectory ? path.resolve(workingDirectory) : undefined,
-        detached: true,
+        detached: useDetached,
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,
         env: {
@@ -387,9 +433,11 @@ export class ToolCLIClient {
   async checkAvailability(toolName?: string): Promise<boolean> {
     try {
       const tool = this.resolveTool(toolName);
+      const versionArgs = this.ensureVibeLocalAutoApprove(tool, [...tool.versionArgs]);
 
       return new Promise((resolve) => {
-        const checkProcess = spawn(tool.command, tool.versionArgs, {
+        const runtime = this.resolveRuntimeCommand(tool, versionArgs);
+        const checkProcess = spawn(runtime.command, runtime.args, {
           shell: false,
           timeout: 5000
         });

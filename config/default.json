@@ -30,7 +30,7 @@
       },
       "vibe-local": {
         "command": "vibe-local",
-        "args": ["-p", "{prompt}"],
+        "args": ["-y", "--prompt", "{prompt}"],
         "versionArgs": ["--version"],
         "description": "vibe-local CLI (Ollama)"
       }
