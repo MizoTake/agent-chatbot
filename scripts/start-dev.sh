@@ -12,6 +12,27 @@ print_error() { echo -e "\033[0;31m❌ $1\033[0m"; }
 print_warning() { echo -e "\033[0;33m⚠️  $1\033[0m"; }
 print_info() { echo -e "\033[0;36mℹ️  $1\033[0m"; }
 
+# 実行ユーザーのPATHを引き継ぐ
+apply_user_path() {
+    local user_path=""
+
+    if [ -n "$AGENT_CHATBOT_USER_PATH" ]; then
+        user_path="$AGENT_CHATBOT_USER_PATH"
+    elif [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ] && command -v sudo >/dev/null 2>&1; then
+        user_path=$(sudo -Hiu "$SUDO_USER" bash -lc 'printf "%s" "$PATH"' 2>/dev/null || true)
+    else
+        user_path=$(bash -lc 'printf "%s" "$PATH"' 2>/dev/null || true)
+    fi
+
+    if [ -n "$user_path" ]; then
+        export AGENT_CHATBOT_USER_PATH="$user_path"
+        export PATH="$user_path:$PATH"
+        print_info "ユーザーPATHを引き継ぎました"
+    else
+        print_warning "ユーザーPATHを取得できなかったため、現在のPATHを使用します"
+    fi
+}
+
 # 利用可能なCLIツールの存在チェック
 detect_agent_cli() {
     if command -v claude &> /dev/null; then
@@ -83,6 +104,7 @@ fi
 
 # 環境変数の読み込み
 source .env
+apply_user_path
 
 # プラットフォーム設定の確認
 has_platform=false
