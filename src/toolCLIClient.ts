@@ -296,6 +296,17 @@ export class ToolCLIClient {
     return processed;
   }
 
+  private shouldLogToolStream(): boolean {
+    return process.env.AGENT_CHATBOT_LOG_TOOL_STREAM === 'true';
+  }
+
+  private sanitizeLogChunk(chunk: string): string {
+    return chunk
+      .replace(/\x1b\[[0-9;]*m/g, '')
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+      .trim();
+  }
+
   private formatError(stderr: string, code: number | null, isBackground: boolean = false): string {
     const processedError = this.processOutput(stderr);
 
@@ -431,13 +442,15 @@ export class ToolCLIClient {
       const runtime = this.resolveRuntimeCommand(tool, args);
       command = runtime.command;
       args = runtime.args;
-      const useDetached = !(process.platform === 'win32' && tool.name === 'vibe-local');
+      const useDetached = process.env.AGENT_CHATBOT_TOOL_DETACHED === 'true';
+      const logToolStream = this.shouldLogToolStream();
 
       const spawnOptions: any = {
         cwd: workingDirectory ? path.resolve(workingDirectory) : undefined,
         detached: useDetached,
         stdio: ['ignore', 'pipe', 'pipe'],
         shell: false,
+        windowsHide: true,
         env: {
           ...process.env,
           LANG: 'ja_JP.UTF-8',
@@ -496,6 +509,16 @@ export class ToolCLIClient {
         if (onStream && !isResolved) {
           onStream(str, false);
         }
+
+        if (logToolStream) {
+          const sanitized = this.sanitizeLogChunk(str);
+          if (sanitized) {
+            logger.info('Tool stdout', {
+              tool: tool.name,
+              chunk: sanitized
+            });
+          }
+        }
       });
 
       toolProcess.stderr?.on('data', (data) => {
@@ -503,6 +526,16 @@ export class ToolCLIClient {
         stderr += str;
         if (onStream && !isResolved) {
           onStream(str, true);
+        }
+
+        if (logToolStream) {
+          const sanitized = this.sanitizeLogChunk(str);
+          if (sanitized) {
+            logger.warn('Tool stderr', {
+              tool: tool.name,
+              chunk: sanitized
+            });
+          }
         }
       });
 

@@ -93,6 +93,11 @@ fi
 source .env
 apply_user_path
 
+# ツール実行ログを起動ターミナルで確認できるように既定有効化
+if [ -z "$AGENT_CHATBOT_LOG_TOOL_STREAM" ]; then
+    export AGENT_CHATBOT_LOG_TOOL_STREAM=true
+fi
+
 # プラットフォーム設定の確認
 has_platform=false
 if [ -n "$SLACK_BOT_TOKEN" ] && [ -n "$SLACK_SIGNING_SECRET" ] && [ -n "$SLACK_APP_TOKEN" ]; then
