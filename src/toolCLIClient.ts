@@ -58,6 +58,7 @@ export class ToolCLIClient {
   private timeout: number;
   private maxOutputSize: number;
   private activeProcesses: Set<any>;
+  private resolvedCommandCache: Map<string, string>;
 
   constructor(
     toolConfigs: Record<string, ToolConfig> = {},
@@ -70,6 +71,7 @@ export class ToolCLIClient {
     this.timeout = timeout || 0;
     this.maxOutputSize = maxOutputSize;
     this.activeProcesses = new Set();
+    this.resolvedCommandCache = new Map();
   }
 
   private normalizeTools(configs: Record<string, ToolConfig>): Map<string, ToolInfo> {
@@ -266,8 +268,10 @@ export class ToolCLIClient {
   }
 
   private resolveRuntimeCommand(tool: ToolInfo, args: string[]): RuntimeCommand {
+    const resolvedCommand = this.resolveCommandFromPath(tool.command);
+
     if (process.platform !== 'win32') {
-      return { command: tool.command, args };
+      return { command: resolvedCommand, args };
     }
 
     if (tool.name === 'vibe-local') {
@@ -285,7 +289,68 @@ export class ToolCLIClient {
       }
     }
 
-    return { command: tool.command, args };
+    return { command: resolvedCommand, args };
+  }
+
+  private resolveCommandFromPath(command: string): string {
+    if (!command || path.isAbsolute(command)) {
+      return command;
+    }
+
+    const cached = this.resolvedCommandCache.get(command);
+    if (cached) {
+      return cached;
+    }
+
+    const envPath = process.env.PATH || process.env.Path || '';
+    if (!envPath) {
+      return command;
+    }
+
+    // If a command already includes a separator, treat it as a direct path.
+    if (command.includes('/') || command.includes('\\')) {
+      return command;
+    }
+
+    const pathEntries = envPath
+      .split(path.delimiter)
+      .map(entry => entry.trim())
+      .filter(Boolean);
+
+    if (process.platform === 'win32') {
+      const hasExtension = path.extname(command).length > 0;
+      const pathExt = (process.env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+        .split(';')
+        .map(ext => ext.trim())
+        .filter(Boolean);
+      const candidates = hasExtension
+        ? [command]
+        : [command, ...pathExt.map(ext => `${command}${ext.toLowerCase()}`), ...pathExt.map(ext => `${command}${ext.toUpperCase()}`)];
+
+      for (const dir of pathEntries) {
+        for (const candidate of candidates) {
+          const fullPath = path.join(dir, candidate);
+          if (fs.existsSync(fullPath)) {
+            this.resolvedCommandCache.set(command, fullPath);
+            return fullPath;
+          }
+        }
+      }
+      return command;
+    }
+
+    for (const dir of pathEntries) {
+      const fullPath = path.join(dir, command);
+      try {
+        fs.accessSync(fullPath, fs.constants.X_OK);
+        this.resolvedCommandCache.set(command, fullPath);
+        return fullPath;
+      } catch {
+        // noop
+      }
+    }
+
+    return command;
   }
 
   private processOutput(output: string): string {
