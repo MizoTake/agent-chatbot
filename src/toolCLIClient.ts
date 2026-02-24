@@ -27,6 +27,7 @@ export interface ToolOptions {
   maxOutputSize?: number;
   skipPermissions?: boolean;
   toolName?: string;
+  resumeConversation?: boolean;
 }
 
 export interface ToolConfig {
@@ -153,15 +154,115 @@ export class ToolCLIClient {
       normalized = ['--dangerously-skip-permissions', ...normalized];
     }
 
-    if (tool.name === 'codex' && !normalized.includes('--sandbox')) {
-      if (normalized[0] === 'exec') {
-        normalized = ['exec', '--sandbox', 'danger-full-access', ...normalized.slice(1)];
-      } else {
-        normalized = ['--sandbox', 'danger-full-access', ...normalized];
-      }
+    if (tool.name === 'codex' && !normalized.includes('--sandbox') && !normalized.includes('-s')) {
+      normalized = ['--sandbox', 'danger-full-access', ...normalized];
     }
 
     return this.ensureVibeLocalAutoApprove(tool, normalized);
+  }
+
+  private stripCodexSandboxOption(args: string[]): { args: string[]; sandboxMode?: string } {
+    const stripped: string[] = [];
+    let sandboxMode: string | undefined;
+
+    for (let i = 0; i < args.length; i++) {
+      const current = args[i];
+      if ((current === '--sandbox' || current === '-s') && i + 1 < args.length) {
+        if (!sandboxMode) {
+          sandboxMode = args[i + 1];
+        }
+        i++;
+        continue;
+      }
+      stripped.push(current);
+    }
+
+    return { args: stripped, sandboxMode };
+  }
+
+  private applyResumeOption(tool: ToolInfo, args: string[], resumeConversation: boolean): string[] {
+    if (!resumeConversation) {
+      return args;
+    }
+
+    if (tool.name === 'claude') {
+      if (args.includes('--continue') || args.includes('-c') || args.includes('--resume') || args.includes('-r')) {
+        return args;
+      }
+      return ['--continue', ...args];
+    }
+
+    if (tool.name === 'codex') {
+      if (args.includes('resume')) {
+        return args;
+      }
+
+      const execIndex = args.indexOf('exec');
+      if (execIndex < 0) {
+        return args;
+      }
+
+      const beforeExec = args.slice(0, execIndex);
+      const afterExec = args.slice(execIndex + 1);
+      const strippedBefore = this.stripCodexSandboxOption(beforeExec);
+      const strippedAfter = this.stripCodexSandboxOption(afterExec);
+      const sandboxMode = strippedBefore.sandboxMode || strippedAfter.sandboxMode || 'danger-full-access';
+
+      return [
+        ...strippedBefore.args,
+        '--sandbox',
+        sandboxMode,
+        'exec',
+        'resume',
+        '--last',
+        ...strippedAfter.args
+      ];
+    }
+
+    if (tool.name === 'vibe-local') {
+      if (args.includes('--resume')) {
+        return args;
+      }
+      return ['--resume', ...args];
+    }
+
+    return args;
+  }
+
+  private isResumeUnavailableError(message: string): boolean {
+    const normalized = message.toLowerCase();
+    const hasResumeOrSessionKeyword = normalized.includes('resume') || normalized.includes('session');
+    return (
+      normalized.includes('no previous session') ||
+      normalized.includes('no sessions') ||
+      normalized.includes('session not found') ||
+      normalized.includes('could not find session') ||
+      normalized.includes('failed to resume') ||
+      normalized.includes('cannot resume') ||
+      normalized.includes('unable to resume') ||
+      (hasResumeOrSessionKeyword && normalized.includes('not found'))
+    );
+  }
+
+  private async executeWithRetry(prompt: string, options: ToolOptions): Promise<ToolResponse> {
+    return withRetry(
+      () => this.executeTool(prompt, options),
+      {
+        maxAttempts: 3,
+        initialDelay: 2000,
+        shouldRetry: (error) => {
+          if (error.timedOut) return false;
+          if (error.message?.includes('CLIが見つかりません')) return false;
+          return isRetryableError(error);
+        },
+        onRetry: (error, attempt) => {
+          logger.warn('Retrying tool command', {
+            attempt,
+            error: error.message
+          });
+        }
+      }
+    );
   }
 
   private resolveRuntimeCommand(tool: ToolInfo, args: string[]): RuntimeCommand {
@@ -238,25 +339,36 @@ export class ToolCLIClient {
 
   async sendPrompt(prompt: string, options: ToolOptions = {}): Promise<ToolResponse> {
     try {
-      return await withRetry(
-        () => this.executeTool(prompt, options),
-        {
-          maxAttempts: 3,
-          initialDelay: 2000,
-          shouldRetry: (error) => {
-            if (error.timedOut) return false;
-            if (error.message?.includes('CLIが見つかりません')) return false;
-            return isRetryableError(error);
-          },
-          onRetry: (error, attempt) => {
-            logger.warn('Retrying tool command', {
-              attempt,
-              error: error.message
-            });
-          }
-        }
-      );
+      return await this.executeWithRetry(prompt, options);
     } catch (retryError: any) {
+      const retryMessage = retryError.lastError?.message || retryError.message || '';
+
+      if (options.resumeConversation && this.isResumeUnavailableError(retryMessage)) {
+        logger.warn('Resume failed, retrying without resume option', {
+          tool: options.toolName || this.defaultToolName,
+          error: retryMessage
+        });
+
+        try {
+          return await this.executeWithRetry(prompt, {
+            ...options,
+            resumeConversation: false
+          });
+        } catch (fallbackError: any) {
+          if (fallbackError.name === 'RetryError') {
+            return {
+              response: '',
+              error: fallbackError.lastError?.message || fallbackError.message,
+              timedOut: fallbackError.lastError?.timedOut
+            };
+          }
+          return {
+            response: '',
+            error: fallbackError.message || '予期しないエラーが発生しました'
+          };
+        }
+      }
+
       if (retryError.name === 'RetryError') {
         return {
           response: '',
@@ -278,7 +390,8 @@ export class ToolCLIClient {
       onStream,
       maxOutputSize = this.maxOutputSize,
       skipPermissions = false,
-      toolName
+      toolName,
+      resumeConversation = false
     } = options;
 
     const tool = this.resolveTool(toolName);
@@ -295,6 +408,7 @@ export class ToolCLIClient {
 
       let command = tool.command;
       let args = this.ensureStandardExecutionOptions(tool, this.buildArgs(tool, prompt));
+      args = this.applyResumeOption(tool, args, resumeConversation);
 
       const forceAllowRoot = process.env.CLAUDE_FORCE_ALLOW_ROOT === 'true';
       const runAsUser = process.env.CLAUDE_RUN_AS_USER;

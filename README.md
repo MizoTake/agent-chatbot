@@ -11,6 +11,7 @@ Claude / Codex / vibe-local などのCLIエージェントをSlackとDiscordに�
 - **マルチプラットフォーム対応**: SlackとDiscordの両方で動作
 - **リポジトリコンテキスト**: チャンネルごとにGitリポジトリをクローンして管理
 - **マルチAI CLI統合**: Claude / Codex / vibe-local を既定サポート（設定次第でGemini/Aider等も追加可能）
+- **会話継続**: チャンネルごとに会話状態を保持し、対応CLIでは `resume` で文脈を継続（`/agent-clear` で初期化）
 - **スレッド返信**: チャンネルメッセージにスレッドで応答
 - **Socket Mode**: パブリックURLを必要としない簡単なセットアップ（Slack）
 - **グレースフルシャットダウン**: 適切なシグナル処理とクリーンアップ
@@ -104,7 +105,7 @@ npm start
 - **ダイレクトメッセージ**: ボットに直接メッセージを送信
 - **チャンネルメンション**: `@ボット名 メッセージ`
 - **スラッシュコマンド**:
-  - `/agent <プロンプト>` - 現在の既定ツールでプロンプトを送信
+  - `/agent <プロンプト>` - 現在の既定ツールでプロンプトを送信（同一チャンネルでは会話を継続）
   - `/agent --tool <name> <プロンプト>` - 1回だけ実行ツールを指定（例: `claude` / `codex` / `vibe-local`）
   - `/agent-tool status` - 現在の有効ツールを確認
   - `/agent-tool list` - 設定済みツールとCLI検出状態を確認
@@ -117,7 +118,7 @@ npm start
   - `/agent-repo reset` - すべてのチャンネルのリポジトリリンクをリセット
   - `/agent-help` - コマンドのヘルプを表示
   - `/agent-status` - 現在の有効ツールとリポジトリの状態を確認
-  - `/agent-clear` - 会話のコンテキストをクリア
+  - `/agent-clear` - 会話継続状態をクリアして新規セッションに戻す
   - `/agent-skip-permissions` - --dangerously-skip-permissionsフラグの切り替え
   - `/agent-skip-permissions on/off` - 権限スキップモードの有効化/無効化
     - ⚠️ **注意**: root権限で実行時は、`CLAUDE_FORCE_ALLOW_ROOT=true`を設定するか、`CLAUDE_RUN_AS_USER`で別ユーザーを指定してください（この設定は `supportsSkipPermissions=true` のツールに適用）

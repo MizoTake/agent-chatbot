@@ -139,7 +139,51 @@ test('ToolCLIClient: claude/codex実行時に標準オプションを自動付�
     );
     assert.deepEqual(
       ensure(codexTool, ['exec', 'hello']),
-      ['exec', '--sandbox', 'danger-full-access', 'hello']
+      ['--sandbox', 'danger-full-access', 'exec', 'hello']
+    );
+  } finally {
+    client.cleanup();
+  }
+});
+
+test('ToolCLIClient: resumeオプションをツールごとに付与する', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+
+  try {
+    const applyResumeOption = (client as any).applyResumeOption.bind(client);
+    const claudeTool = {
+      name: 'claude',
+      command: 'claude',
+      args: ['--print', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: true
+    };
+    const codexTool = {
+      name: 'codex',
+      command: 'codex',
+      args: ['exec', '--sandbox', 'danger-full-access', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: false
+    };
+    const vibeTool = {
+      name: 'vibe-local',
+      command: 'vibe-local',
+      args: ['--prompt', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: false
+    };
+
+    assert.deepEqual(
+      applyResumeOption(claudeTool, ['--print', 'hello'], true),
+      ['--continue', '--print', 'hello']
+    );
+    assert.deepEqual(
+      applyResumeOption(codexTool, ['exec', '--sandbox', 'danger-full-access', 'hello'], true),
+      ['--sandbox', 'danger-full-access', 'exec', 'resume', '--last', 'hello']
+    );
+    assert.deepEqual(
+      applyResumeOption(vibeTool, ['--prompt', 'hello'], true),
+      ['--resume', '--prompt', 'hello']
     );
   } finally {
     client.cleanup();

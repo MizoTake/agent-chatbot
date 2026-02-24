@@ -28,6 +28,7 @@ export class BotManager {
   private storageService: StorageService;
   private toolPreferenceService: ToolPreferenceService;
   private gitService: GitService;
+  private conversationResumeStates: Set<string> = new Set();
   private skipPermissionsEnabled: boolean = false;
   private readonly configLoadPromise: Promise<void>;
 
@@ -94,6 +95,27 @@ export class BotManager {
     }
 
     return this.toolClient.getDefaultToolName();
+  }
+
+  private buildConversationKey(channelId: string, toolName: string): string {
+    return `${channelId}::${toolName}`;
+  }
+
+  private shouldResumeConversation(channelId: string, toolName: string): boolean {
+    return this.conversationResumeStates.has(this.buildConversationKey(channelId, toolName));
+  }
+
+  private markConversationActive(channelId: string, toolName: string): void {
+    this.conversationResumeStates.add(this.buildConversationKey(channelId, toolName));
+  }
+
+  private clearConversationState(channelId: string): number {
+    const prefix = `${channelId}::`;
+    const targets = Array.from(this.conversationResumeStates.values())
+      .filter(key => key.startsWith(prefix));
+
+    targets.forEach(key => this.conversationResumeStates.delete(key));
+    return targets.length;
   }
 
   private parsePrompt(text: string): ParsedPrompt {
@@ -227,6 +249,14 @@ export class BotManager {
     const toolName = this.getEffectiveToolName(message.channelId, parsed.toolOverride);
     const repo = resolvedRepository.repository;
     const workingDirectory = repo?.localPath;
+    if (resolvedRepository.restored) {
+      const clearedConversationCount = this.clearConversationState(message.channelId);
+      logger.info('Cleared conversation state after repository restore', {
+        channelId: message.channelId,
+        clearedConversationCount
+      });
+    }
+    const resumeConversation = this.shouldResumeConversation(message.channelId, toolName);
 
     const onBackgroundComplete = async (bgResult: any) => {
       await bot.sendMessage(message.channelId, {
@@ -249,8 +279,13 @@ export class BotManager {
       workingDirectory,
       onBackgroundComplete,
       skipPermissions: this.skipPermissionsEnabled,
-      toolName
+      toolName,
+      resumeConversation
     });
+
+    if (!result.error || result.timedOut) {
+      this.markConversationActive(message.channelId, toolName);
+    }
 
     if (result.error) {
       return {
@@ -410,7 +445,7 @@ export class BotManager {
                 '• `/agent-repo delete` - このチャンネルのリポジトリリンクを削除\n' +
                 '• `/agent-repo reset` - すべてのリポジトリリンクをリセット\n' +
                 '• `/agent-status` - ツールCLIとリポジトリの状態を確認\n' +
-                '• `/agent-clear` - 会話のコンテキストをクリア\n' +
+                '• `/agent-clear` - 会話継続状態をクリア\n' +
                 '• `/agent-help` - このヘルプを表示\n\n' +
                 '_互換エイリアスとして `/claude*` 系コマンドも利用できます。_'
             }
@@ -459,7 +494,8 @@ export class BotManager {
       };
     });
 
-    registerCommandAliases(['agent-clear', 'claude-clear'], async (): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-clear', 'claude-clear'], async (message: BotMessage): Promise<BotResponse | null> => {
+      const clearedConversationCount = this.clearConversationState(message.channelId);
       return {
         text: '🧹 会話コンテキストをクリアしました',
         blocks: [
@@ -467,8 +503,10 @@ export class BotManager {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '✅ 新しい会話を開始できます。\n\n' +
-                '_注: 現在の実装では各メッセージは独立して処理されます。_'
+              text:
+                `✅ 新しい会話を開始できます。\n` +
+                `クリア対象: ${clearedConversationCount}件の会話状態\n\n` +
+                '_次回メッセージは新規セッションとして実行されます。_'
             }
           }
         ]
@@ -632,8 +670,11 @@ export class BotManager {
       if (args === 'delete') {
         const deleted = this.storageService.deleteChannelRepository(message.channelId);
         if (deleted) {
+          const clearedConversationCount = this.clearConversationState(message.channelId);
           return {
-            text: '✅ チャンネルとリポジトリの紐付けを削除しました'
+            text:
+              `✅ チャンネルとリポジトリの紐付けを削除しました` +
+              `（会話状態 ${clearedConversationCount} 件をクリア）`
           };
         }
         return {
@@ -653,6 +694,7 @@ export class BotManager {
 
         for (const channelId of Object.keys(channels)) {
           this.storageService.deleteChannelRepository(channelId);
+          this.clearConversationState(channelId);
         }
 
         return {
@@ -685,6 +727,7 @@ export class BotManager {
         };
       }
 
+      const clearedConversationCount = this.clearConversationState(message.channelId);
       this.storageService.setChannelRepository(message.channelId, repoUrl, cloneResult.localPath!);
 
       return {
@@ -697,6 +740,7 @@ export class BotManager {
               text: `*リポジトリのクローンが完了しました*\n\n` +
                 `URL: ${repoUrl}\n` +
                 `チャンネル: <#${message.channelId}>\n\n` +
+                `会話状態クリア: ${clearedConversationCount}件\n\n` +
                 'これでこのチャンネルでツールを実行すると、このリポジトリのコンテキストで応答します。'
             }
           }
