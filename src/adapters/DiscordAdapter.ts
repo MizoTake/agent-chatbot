@@ -38,6 +38,24 @@ export class DiscordAdapter implements BotAdapter {
     this.agentName = agentName;
   }
 
+  private canSendDiscordRequest(): boolean {
+    return this.isLoggedIn && Boolean(this.client.token);
+  }
+
+  private ensureRestTokenConfigured(context: string): boolean {
+    const normalizedToken = this.token?.trim();
+    if (!this.isLoggedIn || !normalizedToken) {
+      console.warn(`Skip Discord request (${context}): token is not ready`, {
+        isLoggedIn: this.isLoggedIn,
+        hasToken: Boolean(this.client.token),
+      });
+      return false;
+    }
+
+    this.client.rest.setToken(normalizedToken);
+    return true;
+  }
+
   private setupEventHandlers(): void {
     this.client.once('ready', () => {
       console.log(`Discord bot logged in as ${this.client.user?.tag}`);
@@ -66,6 +84,15 @@ export class DiscordAdapter implements BotAdapter {
 
           if (this.messageHandler) {
             if (isGuildChannel && !isMention) {
+              if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('messageCreate:thinking')) {
+                console.warn('Skip Discord reply in messageCreate: token is not ready', {
+                  isLoggedIn: this.isLoggedIn,
+                  hasToken: Boolean(this.client.token),
+                  channelId: message.channelId,
+                });
+                return;
+              }
+
               const thinkingMsg = await message.reply({
                 content: 'Thinking...',
                 allowedMentions: {
@@ -75,6 +102,15 @@ export class DiscordAdapter implements BotAdapter {
 
               const response = await this.messageHandler(botMessage);
               if (response) {
+                if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('messageCreate:reply')) {
+                  console.warn('Skip Discord reply after handler: token is not ready', {
+                    isLoggedIn: this.isLoggedIn,
+                    hasToken: Boolean(this.client.token),
+                    channelId: message.channelId,
+                  });
+                  return;
+                }
+
                 await message.reply({
                   ...this.buildMessagePayload(response),
                   allowedMentions: {
@@ -114,9 +150,26 @@ export class DiscordAdapter implements BotAdapter {
 
         const handler = this.commandHandlers.get(interaction.commandName);
         if (handler) {
+          if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('interactionCreate:defer')) {
+            console.warn('Skip interaction processing: token is not ready', {
+              isLoggedIn: this.isLoggedIn,
+              hasToken: Boolean(this.client.token),
+              commandName: interaction.commandName,
+            });
+            return;
+          }
+
           await interaction.deferReply();
           const response = await handler(botMessage);
           if (response) {
+            if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('interactionCreate:reply')) {
+              console.warn('Skip interaction reply: token is not ready', {
+                isLoggedIn: this.isLoggedIn,
+                hasToken: Boolean(this.client.token),
+                commandName: interaction.commandName,
+              });
+              return;
+            }
             await interaction.editReply(this.buildMessagePayload(response));
           }
         }
@@ -214,6 +267,14 @@ export class DiscordAdapter implements BotAdapter {
   }
 
   private async registerSlashCommands(): Promise<void> {
+    if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('registerSlashCommands')) {
+      console.warn('Skip slash command registration: token is not ready', {
+        isLoggedIn: this.isLoggedIn,
+        hasToken: Boolean(this.client.token),
+      });
+      return;
+    }
+
     const normalizedAgentName = this.agentName.trim() || 'agent';
 
     const commands = [
@@ -337,19 +398,34 @@ export class DiscordAdapter implements BotAdapter {
       return;
     }
 
-    await this.client.login(this.token);
+    const normalizedToken = this.token?.trim();
+    if (!normalizedToken) {
+      throw new Error('DISCORD_BOT_TOKEN is empty');
+    }
+
+    await this.client.login(normalizedToken);
+    this.client.rest.setToken(normalizedToken);
     this.isLoggedIn = true;
     console.log('Discord bot starting...');
   }
 
   async stop(): Promise<void> {
-    await this.client.destroy();
     this.isLoggedIn = false;
+    await this.client.destroy();
     console.log('Discord bot stopped');
   }
 
   async sendMessage(channelId: string, response: BotResponse): Promise<void> {
     try {
+      if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('sendMessage')) {
+        console.warn('Skip sendMessage: token is not ready', {
+          isLoggedIn: this.isLoggedIn,
+          hasToken: Boolean(this.client.token),
+          channelId,
+        });
+        return;
+      }
+
       const channel = await this.client.channels.fetch(channelId);
       if (channel && (channel instanceof TextChannel || channel instanceof DMChannel)) {
         await channel.send(this.buildMessagePayload(response));
