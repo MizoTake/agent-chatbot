@@ -1,0 +1,74 @@
+version: 1
+
+agents:
+  local_llm:
+    mode: "cli"
+    model: "qwen/qwen3-30b-a3b-2507"
+    cli:
+      command: "opencode-cli"
+      args: ["run"]
+      prompt_via_stdin: false
+      model_arg: "-m"
+      ensure_no_permission_flags: true
+
+  claude:
+    mode: "cli"
+    cli:
+      command: "claude"
+      args: ["-p"]
+      prompt_via_stdin: false
+      model_arg: null
+      ensure_no_permission_flags: true
+  gemini:
+    mode: "cli"
+    cli:
+      command: "gemini"
+      args: ["-p"]
+      prompt_via_stdin: false
+      model_arg: null
+      ensure_no_permission_flags: true
+  codex:
+    mode: "cli"
+    cli:
+      command: "codex"
+      args: ["exec", "--skip-git-repo-check"]
+      prompt_via_stdin: false
+      model_arg: null
+      ensure_no_permission_flags: true
+
+execution:
+  profile: "opencode_impl_no_review"
+  profile_strategy:
+    alternating:
+      - "opencode_impl_no_review"
+      - "opencode_impl_no_review"
+      - "opencode_impl_codex_review"
+      - "opencode_impl_no_review"
+      - "opencode_impl_claude_review"
+      - "opencode_impl_no_review"
+      - "opencode_impl_no_review"
+      - "codex_impl_opencode_review"
+      - "opencode_impl_no_review"
+      - "claude_impl_opencode_review"
+      - "opencode_impl_no_review"
+    every_n_cycles: []
+    mixins: []
+  acceptance_criteria:
+    # Regression guard
+    - "TypeScript compilation (`npx tsc --noEmit`) passes with no errors."
+    - "`ToolCLIClient` correctly builds args with `{prompt}` placeholder substitution and appends prompt when no placeholder exists."
+    - "`ToolCLIClient` auto-injects standard execution options per tool (e.g. `--dangerously-skip-permissions` for claude, `--sandbox danger-full-access` for codex, `-y` for vibe-local)."
+    - "`ToolCLIClient.checkAvailability` returns `true` for reachable CLIs and `false` for missing ones."
+    - "`ToolPreferenceService` persists and retrieves per-channel tool preferences, and `clearChannelTool` returns correct deletion status."
+    - "`BotManager` routes `/agent` commands through `ToolCLIClient` with proper working directory and tool selection."
+    - "All existing unit tests (`npm test`) pass."
+    # Feature: /agent-repo create
+    - "`/agent-repo create <name>` creates a new `git init`-ed repository under `repositories/`, makes an initial empty commit on `main`, and links it to the channel via `StorageService`."
+    - "After creation, `/agent` commands in that channel execute inside the new repository's working directory."
+    - "Duplicate repo name for the same channel returns an error without overwriting."
+    - "Invalid repo names (path traversal, special characters) are rejected with a validation error."
+    - "Unit tests cover successful creation, duplicate rejection, and invalid name rejection."
+  verification:
+    commands:
+      - "npm run typecheck"
+      - "npm test"
