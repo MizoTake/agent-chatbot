@@ -3,36 +3,50 @@ version: 1
 agents:
   local_llm:
     mode: "cli"
-    model: "qwen/qwen3-30b-a3b-2507"
+    model: "lmstudio/qwen3.5-9b"
+    # model: "lmstudio/qwen3.5-122b-a10b"
+    # model: "lmstudio/qwen/qwen3-coder-30b"
+    # model: "lmstudio/openai/gpt-oss-120b"
     cli:
       command: "opencode-cli"
-      args: ["run"]
-      prompt_via_stdin: false
+      args: ["run", "--thinking"]
       model_arg: "-m"
       ensure_no_permission_flags: true
+
+  local_llm_reviewer:
+    mode: "cli"
+    model: "lmstudio/qwen3.5-9b"
+    # model: "lmstudio/qwen/qwen3-coder-30b"
+    # model: "lmstudio/openai/gpt-oss-120b"
+    cli:
+      command: "opencode-cli"
+      args: ["run", "--thinking"]
+      model_arg: "-m"
+      ensure_no_permission_flags: true
+
 
   claude:
     mode: "cli"
     cli:
-      command: "claude"
+      command: "claude.cmd"
       args: ["-p"]
-      prompt_via_stdin: false
+      prompt_via_stdin: true
       model_arg: null
       ensure_no_permission_flags: true
   gemini:
     mode: "cli"
     cli:
-      command: "gemini"
+      command: "gemini.cmd"
       args: ["-p"]
-      prompt_via_stdin: false
+      prompt_via_stdin: true
       model_arg: null
       ensure_no_permission_flags: true
   codex:
     mode: "cli"
     cli:
-      command: "codex"
+      command: "codex.cmd"
       args: ["exec", "--skip-git-repo-check"]
-      prompt_via_stdin: false
+      prompt_via_stdin: true
       model_arg: null
       ensure_no_permission_flags: true
 
@@ -40,17 +54,25 @@ execution:
   profile: "opencode_impl_no_review"
   profile_strategy:
     alternating:
-      - "opencode_impl_no_review"
-      - "opencode_impl_no_review"
+      - "local_only"
+      - "local_only"
+      - "local_only"
+      - "local_only"
+      - "local_only"
+      - "local_only"
       - "opencode_impl_codex_review"
-      - "opencode_impl_no_review"
+      - "local_only"
       - "opencode_impl_claude_review"
-      - "opencode_impl_no_review"
-      - "opencode_impl_no_review"
+      - "local_only"
+      - "local_only"
       - "codex_impl_opencode_review"
-      - "opencode_impl_no_review"
+      - "local_only"
+      - "local_only"
+      - "local_only"
       - "claude_impl_opencode_review"
-      - "opencode_impl_no_review"
+      - "local_only"
+      - "local_only"
+      - "local_only"
     every_n_cycles: []
     mixins: []
   acceptance_criteria:

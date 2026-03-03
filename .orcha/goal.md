@@ -8,6 +8,8 @@ The project is evolving in two directions:
 1. **orcha integration** — agent-chatbot itself uses `.orcha/` for orchestrated multi-agent development. The orcha config needs to accurately reflect this project's tech stack, verification pipeline, and acceptance criteria.
 2. **New repository creation feature** — currently the bot only supports cloning existing remote repositories via `/agent-repo <URL>`. A new capability is needed to create fresh local repositories from scratch so that agents can start greenfield projects directly from chat.
 
+TDDで開発を進めるようにしてください。
+
 ## Acceptance Criteria
 
 ### Existing functionality (regression guard)
