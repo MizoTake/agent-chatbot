@@ -10,6 +10,7 @@ export interface ToolResponse {
   response: string;
   error?: string;
   timedOut?: boolean;
+  sessionId?: string;
 }
 
 interface BackgroundCallback {
@@ -28,6 +29,7 @@ export interface ToolOptions {
   skipPermissions?: boolean;
   toolName?: string;
   resumeConversation?: boolean;
+  sessionId?: string;
 }
 
 export interface ToolConfig {
@@ -182,16 +184,21 @@ export class ToolCLIClient {
     return { args: stripped, sandboxMode };
   }
 
-  private applyResumeOption(tool: ToolInfo, args: string[], resumeConversation: boolean): string[] {
+  private applyResumeOption(tool: ToolInfo, args: string[], resumeConversation: boolean, sessionId?: string): string[] {
     if (!resumeConversation) {
       return args;
     }
 
     if (tool.name === 'claude') {
-      if (args.includes('--continue') || args.includes('-c') || args.includes('--resume') || args.includes('-r')) {
+      if (args.includes('--resume') || args.includes('-r') || args.includes('--continue') || args.includes('-c')) {
         return args;
       }
-      return ['--continue', ...args];
+      if (sessionId) {
+        // Resume specific per-channel session
+        return ['--resume', sessionId, ...args];
+      }
+      // No stored session yet — start fresh; session ID will be captured from the response
+      return args;
     }
 
     if (tool.name === 'codex') {
@@ -228,6 +235,27 @@ export class ToolCLIClient {
       return ['--resume', ...args];
     }
 
+    if (tool.name === 'opencode') {
+      if (args.includes('--session') || args.includes('-s')) {
+        return args;
+      }
+      // args may start with a script path when using the monitor wrapper,
+      // so insert --session <id> right after the 'run' subcommand, not at index 0.
+      const runIndex = args.indexOf('run');
+      if (runIndex < 0) {
+        return args;
+      }
+      if (sessionId) {
+        return [
+          ...args.slice(0, runIndex + 1),
+          '--session', sessionId,
+          ...args.slice(runIndex + 1)
+        ];
+      }
+      // No stored session yet — start fresh; session ID will be captured from the response
+      return args;
+    }
+
     return args;
   }
 
@@ -242,6 +270,11 @@ export class ToolCLIClient {
       normalized.includes('failed to resume') ||
       normalized.includes('cannot resume') ||
       normalized.includes('unable to resume') ||
+      // codex: "no exec history" or similar when no previous session exists
+      normalized.includes('no exec history') ||
+      normalized.includes('no history') ||
+      // opencode: unknown/unrecognized --session flag means no resume support in this version
+      (normalized.includes('--session') && (normalized.includes('unknown') || normalized.includes('invalid') || normalized.includes('unrecognized'))) ||
       (hasResumeOrSessionKeyword && normalized.includes('not found'))
     );
   }
@@ -361,6 +394,80 @@ export class ToolCLIClient {
     return processed;
   }
 
+  /**
+   * Parse opencode NDJSON output (--format json).
+   * Each line is a JSON event. Text is accumulated from message.part.updated events
+   * where properties.part.type === "text". The sessionID field is present on every event.
+   */
+  private parseOpencodeJsonOutput(stdout: string): { response: string; sessionId?: string } {
+    const lines = stdout.trim().split('\n');
+    const partOrder: string[] = [];
+    const partTexts = new Map<string, string>();
+    let sessionId: string | undefined;
+
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const event = JSON.parse(trimmed);
+        if (typeof event.sessionID === 'string' && event.sessionID) {
+          sessionId = event.sessionID;
+        }
+        // Actual format: type="text" with part.text (observed in production)
+        // Also handle "message.part.updated" in case of API version differences
+        const isTextEvent = event.type === 'text' || event.type === 'message.part.updated';
+        if (isTextEvent) {
+          const part = event.part ?? event.properties?.part;
+          if (part && part.type === 'text' && typeof part.text === 'string' && part.id) {
+            if (!partTexts.has(part.id)) {
+              partOrder.push(part.id);
+            }
+            partTexts.set(part.id, part.text);
+          }
+        }
+      } catch {
+        // Skip non-JSON lines
+      }
+    }
+
+    if (partOrder.length > 0) {
+      return {
+        response: this.processOutput(partOrder.map(id => partTexts.get(id) || '').join('')),
+        sessionId
+      };
+    }
+    return { response: this.processOutput(stdout), sessionId };
+  }
+
+  /**
+   * Parse stdout for tools that emit structured JSON output.
+   * For claude (--output-format json) the output is:
+   *   {"type":"result","result":"<text>","session_id":"<id>",...}
+   * For opencode (--format json) the output is NDJSON with sessionID on each event.
+   * Returns the display text and optional session_id.
+   */
+  private parseToolOutput(tool: ToolInfo, stdout: string): { response: string; sessionId?: string } {
+    if (tool.name === 'claude') {
+      try {
+        const parsed = JSON.parse(stdout.trim());
+        if (parsed && typeof parsed.result === 'string') {
+          return {
+            response: this.processOutput(parsed.result),
+            sessionId: typeof parsed.session_id === 'string' ? parsed.session_id : undefined
+          };
+        }
+      } catch {
+        // Not JSON — fall through to plain-text handling
+      }
+    }
+
+    if (tool.name === 'opencode') {
+      return this.parseOpencodeJsonOutput(stdout);
+    }
+
+    return { response: this.processOutput(stdout) };
+  }
+
   private shouldLogToolStream(): boolean {
     return process.env.AGENT_CHATBOT_LOG_TOOL_STREAM === 'true';
   }
@@ -467,7 +574,8 @@ export class ToolCLIClient {
       maxOutputSize = this.maxOutputSize,
       skipPermissions = false,
       toolName,
-      resumeConversation = false
+      resumeConversation = false,
+      sessionId
     } = options;
 
     const tool = this.resolveTool(toolName);
@@ -484,7 +592,7 @@ export class ToolCLIClient {
 
       let command = tool.command;
       let args = this.ensureStandardExecutionOptions(tool, this.buildArgs(tool, prompt));
-      args = this.applyResumeOption(tool, args, resumeConversation);
+      args = this.applyResumeOption(tool, args, resumeConversation, sessionId);
 
       const forceAllowRoot = process.env.CLAUDE_FORCE_ALLOW_ROOT === 'true';
       const runAsUser = process.env.CLAUDE_RUN_AS_USER;
@@ -614,9 +722,8 @@ export class ToolCLIClient {
           isResolved = true;
 
           if (code === 0) {
-            resolve({
-              response: this.processOutput(stdout)
-            });
+            const parsed = this.parseToolOutput(tool, stdout);
+            resolve(parsed);
           } else {
             if (stderr.includes('command not found') || stderr.includes('not found')) {
               reject(new Error(`${tool.name} CLIが見つかりません。インストールとPATH設定を確認してください。`));
@@ -630,9 +737,7 @@ export class ToolCLIClient {
           }
         } else if (onBackgroundComplete) {
           if (code === 0) {
-            onBackgroundComplete({
-              response: this.processOutput(stdout)
-            });
+            onBackgroundComplete(this.parseToolOutput(tool, stdout));
           } else {
             onBackgroundComplete({
               response: '',

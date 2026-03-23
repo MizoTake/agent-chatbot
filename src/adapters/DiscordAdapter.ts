@@ -39,7 +39,11 @@ export class DiscordAdapter implements BotAdapter {
   }
 
   private canSendDiscordRequest(): boolean {
-    return this.isLoggedIn && Boolean(this.client.token);
+    // this.client.token is managed by discord.js and can be set to null
+    // internally (e.g. during Client.destroy()) even while our isLoggedIn flag
+    // remains true (race condition: a messageCreate already queued before the
+    // WebSocket closed). Use our own readonly token copy instead.
+    return this.isLoggedIn && Boolean(this.token?.trim());
   }
 
   private ensureRestTokenConfigured(context: string): boolean {
@@ -57,11 +61,24 @@ export class DiscordAdapter implements BotAdapter {
   }
 
   private setupEventHandlers(): void {
-    this.client.once('ready', () => {
+    // Use 'on' (not 'once') so reconnections after session expiry also update
+    // botUserId and re-register slash commands.
+    this.client.on('ready', () => {
       console.log(`Discord bot logged in as ${this.client.user?.tag}`);
       this.botUserId = this.client.user?.id;
       void this.syncIdentity();
       void this.registerSlashCommands();
+    });
+
+    this.client.on('shardDisconnect', (event, shardId) => {
+      // Close codes that discord.js will NOT auto-recover from
+      const NON_RECOVERABLE_CODES = new Set([4004, 4010, 4011, 4012, 4013, 4014]);
+      if (NON_RECOVERABLE_CODES.has(event.code)) {
+        console.error(`Discord shard ${shardId} disconnected with non-recoverable code ${event.code} — bot requires restart`);
+        this.isLoggedIn = false;
+      } else {
+        console.warn(`Discord shard ${shardId} disconnected (code: ${event.code}), waiting for auto-reconnect...`);
+      }
     });
 
     this.client.on('messageCreate', async (message: Message) => {
@@ -289,38 +306,16 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'claude',
-        description: `Chat with ${normalizedAgentName} (legacy alias)`,
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: `Your message to ${normalizedAgentName}`,
-          required: true,
-        }],
-      },
-      {
         name: 'agent-help',
         description: `Show ${normalizedAgentName} help`,
-      },
-      {
-        name: 'claude-help',
-        description: `Show ${normalizedAgentName} help (legacy alias)`,
       },
       {
         name: 'agent-status',
         description: 'Show tool and repository status',
       },
       {
-        name: 'claude-status',
-        description: 'Show tool and repository status (legacy alias)',
-      },
-      {
         name: 'agent-clear',
         description: 'Clear conversation context',
-      },
-      {
-        name: 'claude-clear',
-        description: 'Clear conversation context (legacy alias)',
       },
       {
         name: 'agent-repo',
@@ -328,17 +323,7 @@ export class DiscordAdapter implements BotAdapter {
         options: [{
           name: 'prompt',
           type: 3,
-          description: '<url> / status / tool <name> / delete / reset',
-          required: true,
-        }],
-      },
-      {
-        name: 'claude-repo',
-        description: 'Manage repository for this channel (legacy alias)',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: '<url> / status / tool <name> / delete / reset',
+          description: '<url> / status / create <name> / tool <name> / delete / reset',
           required: true,
         }],
       },
@@ -353,32 +338,12 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'claude-skip-permissions',
-        description: 'Toggle --dangerously-skip-permissions flag (legacy alias)',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: 'on|enable / off|disable / empty to toggle',
-          required: false,
-        }],
-      },
-      {
         name: 'agent-tool',
-        description: 'Tool command: list/status/use/clear',
+        description: `Tool command: list / status / use <name> / clear / reset`,
         options: [{
           name: 'prompt',
           type: 3,
-          description: 'list / status / use <name> / clear',
-          required: false,
-        }],
-      },
-      {
-        name: 'claude-tool',
-        description: 'Tool command: list/status/use/clear (legacy alias)',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: 'list / status / use <name> / clear',
+          description: 'list / status / use <name> / clear / reset',
           required: false,
         }],
       },

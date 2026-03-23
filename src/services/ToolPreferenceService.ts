@@ -65,4 +65,13 @@ export class ToolPreferenceService {
     }
     return result;
   }
+
+  clearAll(): number {
+    const count = this.data.size;
+    this.data.clear();
+    if (count > 0) {
+      this.saveData();
+    }
+    return count;
+  }
 }

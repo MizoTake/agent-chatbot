@@ -176,9 +176,20 @@ test('ToolCLIClient: add resume option per tool', () => {
       supportsSkipPermissions: false
     };
 
+    // claude: no sessionId → fresh start (no flag added)
     assert.deepEqual(
-      applyResumeOption(claudeTool, ['--print', 'hello'], true),
-      ['--continue', '--print', 'hello']
+      applyResumeOption(claudeTool, ['--print', 'hello'], true, undefined),
+      ['--print', 'hello']
+    );
+    // claude: with sessionId → --resume <id>
+    assert.deepEqual(
+      applyResumeOption(claudeTool, ['--print', 'hello'], true, 'ses-abc'),
+      ['--resume', 'ses-abc', '--print', 'hello']
+    );
+    // claude: resumeConversation=false → no flag
+    assert.deepEqual(
+      applyResumeOption(claudeTool, ['--print', 'hello'], false, 'ses-abc'),
+      ['--print', 'hello']
     );
     assert.deepEqual(
       applyResumeOption(codexTool, ['exec', '--sandbox', 'danger-full-access', 'hello'], true),
@@ -188,9 +199,142 @@ test('ToolCLIClient: add resume option per tool', () => {
       applyResumeOption(vibeTool, ['--prompt', 'hello'], true),
       ['--resume', '--prompt', 'hello']
     );
+
+    const opencodeTool = {
+      name: 'opencode',
+      command: 'opencode',
+      args: ['run', '--format', 'json', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: false
+    };
+    // opencode: no sessionId → fresh start (no flag added)
+    assert.deepEqual(
+      applyResumeOption(opencodeTool, ['run', '--format', 'json', 'hello'], true, undefined),
+      ['run', '--format', 'json', 'hello']
+    );
+    // opencode: with sessionId → --session <id> inserted after 'run'
+    assert.deepEqual(
+      applyResumeOption(opencodeTool, ['run', '--format', 'json', 'hello'], true, 'ses_01abc'),
+      ['run', '--session', 'ses_01abc', '--format', 'json', 'hello']
+    );
+    // opencode: resumeConversation=false → no flag
+    assert.deepEqual(
+      applyResumeOption(opencodeTool, ['run', '--format', 'json', 'hello'], false, 'ses_01abc'),
+      ['run', '--format', 'json', 'hello']
+    );
   } finally {
     client.cleanup();
   }
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// parseToolOutput / parseOpencodeJsonOutput — 実際のレスポンス形式を検証する
+// ────────────────────────────────────────────────────────────────────────────
+
+test('parseToolOutput: opencode text イベント (実際の出力形式) からテキストと sessionID を抽出する', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+  const parse = (client as any).parseToolOutput.bind(client);
+  const opencodeTool = { name: 'opencode', command: 'opencode', args: [], versionArgs: [], supportsSkipPermissions: false };
+
+  // 実際のログから取得した NDJSON (type="text", part.text にテキストが入る)
+  const ndjson = [
+    JSON.stringify({ type: 'step_start', timestamp: 1774262490449, sessionID: 'ses_2e5c9ba28ffekEwRHUaS1dXkBB', part: { id: 'prt_start', sessionID: 'ses_2e5c9ba28ffekEwRHUaS1dXkBB', messageID: 'msg_abc', type: 'step-start', snapshot: 'snap' } }),
+    JSON.stringify({ type: 'tool_use', timestamp: 1774262501471, sessionID: 'ses_2e5c9ba28ffekEwRHUaS1dXkBB', part: { id: 'prt_tool', type: 'tool', callID: '911972887', tool: 'grep', state: { status: 'completed' } } }),
+    JSON.stringify({ type: 'text', timestamp: 1774262761698, sessionID: 'ses_2e5c9ba28ffekEwRHUaS1dXkBB', part: { id: 'prt_text1', sessionID: 'ses_2e5c9ba28ffekEwRHUaS1dXkBB', messageID: 'msg_abc', type: 'text', text: 'こんにちは、世界！', time: { start: 1774262761696, end: 1774262761696 } } }),
+    JSON.stringify({ type: 'step_finish', timestamp: 1774262761789, sessionID: 'ses_2e5c9ba28ffekEwRHUaS1dXkBB', part: { id: 'prt_finish', type: 'step-finish', reason: 'stop' } }),
+  ].join('\n');
+
+  const result = parse(opencodeTool, ndjson);
+  assert.equal(result.sessionId, 'ses_2e5c9ba28ffekEwRHUaS1dXkBB');
+  assert.equal(result.response, 'こんにちは、世界！');
+
+  client.cleanup();
+});
+
+test('parseToolOutput: opencode streaming — 同一 part.id の更新は最終テキストで上書きされる', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+  const parse = (client as any).parseToolOutput.bind(client);
+  const opencodeTool = { name: 'opencode', command: 'opencode', args: [], versionArgs: [], supportsSkipPermissions: false };
+
+  // 同一 part.id に対して複数回 text イベントが来るケース (streaming 更新)
+  const ndjson = [
+    JSON.stringify({ type: 'text', sessionID: 'ses_stream01', part: { id: 'prt_A', type: 'text', text: 'Hello' } }),
+    JSON.stringify({ type: 'text', sessionID: 'ses_stream01', part: { id: 'prt_A', type: 'text', text: 'Hello, world!' } }),
+    JSON.stringify({ type: 'text', sessionID: 'ses_stream01', part: { id: 'prt_B', type: 'text', text: ' Done.' } }),
+  ].join('\n');
+
+  const result = parse(opencodeTool, ndjson);
+  assert.equal(result.sessionId, 'ses_stream01');
+  // prt_A の最終テキスト + prt_B (順序は挿入順)
+  assert.equal(result.response, 'Hello, world! Done.');
+
+  client.cleanup();
+});
+
+test('parseToolOutput: opencode — message.part.updated 形式 (旧 API) にも対応する', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+  const parse = (client as any).parseToolOutput.bind(client);
+  const opencodeTool = { name: 'opencode', command: 'opencode', args: [], versionArgs: [], supportsSkipPermissions: false };
+
+  const ndjson = [
+    JSON.stringify({ type: 'message.part.updated', sessionID: 'ses_legacy01', properties: { part: { id: 'prt_legacy', type: 'text', text: 'Legacy format response' } } }),
+  ].join('\n');
+
+  const result = parse(opencodeTool, ndjson);
+  assert.equal(result.sessionId, 'ses_legacy01');
+  assert.equal(result.response, 'Legacy format response');
+
+  client.cleanup();
+});
+
+test('parseToolOutput: opencode — JSON 以外の行は無視してクラッシュしない', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+  const parse = (client as any).parseToolOutput.bind(client);
+  const opencodeTool = { name: 'opencode', command: 'opencode', args: [], versionArgs: [], supportsSkipPermissions: false };
+
+  const ndjson = [
+    'not json at all',
+    '',
+    JSON.stringify({ type: 'text', sessionID: 'ses_noisy01', part: { id: 'prt_x', type: 'text', text: 'clean response' } }),
+    'another garbage line',
+  ].join('\n');
+
+  const result = parse(opencodeTool, ndjson);
+  assert.equal(result.sessionId, 'ses_noisy01');
+  assert.equal(result.response, 'clean response');
+
+  client.cleanup();
+});
+
+test('parseToolOutput: opencode — text イベントが一つもなければ stdout をそのまま返す', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+  const parse = (client as any).parseToolOutput.bind(client);
+  const opencodeTool = { name: 'opencode', command: 'opencode', args: [], versionArgs: [], supportsSkipPermissions: false };
+
+  const ndjson = [
+    JSON.stringify({ type: 'step_start', sessionID: 'ses_notext', part: { id: 'prt_s', type: 'step-start' } }),
+    JSON.stringify({ type: 'step_finish', sessionID: 'ses_notext', part: { id: 'prt_f', type: 'step-finish', reason: 'stop' } }),
+  ].join('\n');
+
+  const result = parse(opencodeTool, ndjson);
+  // sessionID は取れているが text parts がないので processOutput(stdout) をそのまま返す
+  assert.equal(result.sessionId, 'ses_notext');
+  assert.ok(result.response.length >= 0);
+
+  client.cleanup();
+});
+
+test('parseToolOutput: claude --output-format json からテキストと session_id を抽出する', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+  const parse = (client as any).parseToolOutput.bind(client);
+  const claudeTool = { name: 'claude', command: 'claude', args: [], versionArgs: [], supportsSkipPermissions: true };
+
+  const jsonOutput = JSON.stringify({ type: 'result', result: 'Claude の回答です。', session_id: 'ses-claude-abc123' });
+  const result = parse(claudeTool, jsonOutput);
+  assert.equal(result.response, 'Claude の回答です。');
+  assert.equal(result.sessionId, 'ses-claude-abc123');
+
+  client.cleanup();
 });
 
 test('ToolCLIClient: PATH から CLI 実体パスを解決する', () => {

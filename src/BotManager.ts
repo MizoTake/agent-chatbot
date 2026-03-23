@@ -1,3 +1,4 @@
+import * as path from 'path';
 import { BotAdapter, BotMessage, BotResponse } from './interfaces/BotInterface';
 import { SlackAdapter } from './adapters/SlackAdapter';
 import { DiscordAdapter } from './adapters/DiscordAdapter';
@@ -28,7 +29,14 @@ export class BotManager {
   private storageService: StorageService;
   private toolPreferenceService: ToolPreferenceService;
   private gitService: GitService;
-  private conversationResumeStates: Set<string> = new Set();
+  // Channels where resume has been explicitly disabled by /agent-clear.
+  // Resume is ON by default; it is turned OFF only after a clear, and automatically
+  // re-enabled once the next message succeeds (starting a fresh session).
+  private clearedChannels: Set<string> = new Set();
+
+  // Per-channel session IDs for tools that support explicit session resumption.
+  // Key: "<channelId>::<toolName>", value: session ID returned by the tool CLI.
+  private sessionMap: Map<string, string> = new Map();
   private skipPermissionsEnabled: boolean = false;
   private readonly configLoadPromise: Promise<void>;
 
@@ -50,14 +58,30 @@ export class BotManager {
       const timeout = ConfigLoader.get('claude.timeout', 3600000);
       const maxOutputSize = ConfigLoader.get('claude.maxOutputSize', 10485760);
 
+      // opencode: LMStudio用モニタースクリプト or 直接実行を環境変数で切り替え
+      const opencodeUseMonitor = (process.env.OPENCODE_USE_MONITOR || 'false').toLowerCase() === 'true';
+      const opencodeCommand = opencodeUseMonitor ? 'bash' : (process.env.OPENCODE_COMMAND || 'opencode');
+      // モニタースクリプトは絶対パスで渡す（spawn の cwd がリポジトリパスになる場合でも解決できるように）
+      const monitorScriptPath = path.resolve(process.cwd(), 'scripts', 'opencode-monitor.sh');
+      const opencodeArgs = opencodeUseMonitor
+        ? [monitorScriptPath, 'run', '--format', 'json', '{prompt}']
+        : (process.env.OPENCODE_ARGS?.split(' ') || ['run', '--format', 'json', '{prompt}']);
+
       const configuredTools = ConfigLoader.get<Record<string, ToolConfig>>('tools.definitions', {});
       const mergedTools: Record<string, ToolConfig> = {
         claude: {
           command: claudeCommand,
-          args: ['--dangerously-skip-permissions', '--print', '{prompt}'],
+          args: ['--dangerously-skip-permissions', '--print', '--output-format', 'json', '{prompt}'],
           versionArgs: ['--version'],
           description: 'Anthropic Claude CLI',
           supportsSkipPermissions: true
+        },
+        opencode: {
+          command: opencodeCommand,
+          args: opencodeArgs,
+          versionArgs: ['--version'],
+          description: 'OpenCode CLI',
+          supportsSkipPermissions: false
         },
         ...configuredTools
       };
@@ -101,21 +125,28 @@ export class BotManager {
     return `${channelId}::${toolName}`;
   }
 
-  private shouldResumeConversation(channelId: string, toolName: string): boolean {
-    return this.conversationResumeStates.has(this.buildConversationKey(channelId, toolName));
+  private shouldResumeConversation(channelId: string, _toolName: string): boolean {
+    return !this.clearedChannels.has(channelId);
   }
 
-  private markConversationActive(channelId: string, toolName: string): void {
-    this.conversationResumeStates.add(this.buildConversationKey(channelId, toolName));
+  private markConversationActive(channelId: string, _toolName: string): void {
+    // Re-enable resume after the first successful exchange following a clear
+    this.clearedChannels.delete(channelId);
   }
 
   private clearConversationState(channelId: string): number {
-    const prefix = `${channelId}::`;
-    const targets = Array.from(this.conversationResumeStates.values())
-      .filter(key => key.startsWith(prefix));
+    const alreadyCleared = this.clearedChannels.has(channelId);
+    this.clearedChannels.add(channelId);
 
-    targets.forEach(key => this.conversationResumeStates.delete(key));
-    return targets.length;
+    // Also wipe per-channel session IDs so the next message starts a fresh session
+    const prefix = `${channelId}::`;
+    for (const key of this.sessionMap.keys()) {
+      if (key.startsWith(prefix)) {
+        this.sessionMap.delete(key);
+      }
+    }
+
+    return alreadyCleared ? 0 : 1;
   }
 
   private parsePrompt(text: string): ParsedPrompt {
@@ -148,8 +179,15 @@ export class BotManager {
     }
 
     const channelTool = this.toolPreferenceService.getChannelTool(channelId)?.toolName;
-    if (channelTool && this.toolClient.hasTool(channelTool)) {
-      return channelTool;
+    if (channelTool) {
+      if (this.toolClient.hasTool(channelTool)) {
+        return channelTool;
+      }
+      logger.warn('Channel tool preference is stale (tool not registered), falling back to default', {
+        channelId,
+        staleTool: channelTool,
+        defaultTool: this.toolClient.getDefaultToolName()
+      });
     }
 
     return this.toolClient.getDefaultToolName();
@@ -257,6 +295,8 @@ export class BotManager {
       });
     }
     const resumeConversation = this.shouldResumeConversation(message.channelId, toolName);
+    const sessionKey = this.buildConversationKey(message.channelId, toolName);
+    const sessionId = this.sessionMap.get(sessionKey);
 
     const onBackgroundComplete = async (bgResult: any) => {
       await bot.sendMessage(message.channelId, {
@@ -280,11 +320,15 @@ export class BotManager {
       onBackgroundComplete,
       skipPermissions: this.skipPermissionsEnabled,
       toolName,
-      resumeConversation
+      resumeConversation,
+      sessionId
     });
 
     if (!result.error || result.timedOut) {
       this.markConversationActive(message.channelId, toolName);
+      if (result.sessionId) {
+        this.sessionMap.set(sessionKey, result.sessionId);
+      }
     }
 
     if (result.error) {
@@ -373,6 +417,11 @@ export class BotManager {
       if (action === 'status') {
         const currentAvailable = await this.toolClient.checkAvailability(currentTool);
         const defaultTool = this.toolClient.getDefaultToolName();
+        // stale: saved preference points to a tool not in the registry
+        const channelToolStale = channelTool && !this.toolClient.hasTool(channelTool);
+        const channelToolLine = channelTool
+          ? `\`${channelTool}\`` + (channelToolStale ? ' ⚠️ 未登録ツール（`/agent-tool clear` でリセット推奨）' : '')
+          : '未設定（デフォルト使用中）';
         return {
           text: 'ツール設定ステータス',
           blocks: [
@@ -382,9 +431,9 @@ export class BotManager {
                 type: 'mrkdwn',
                 text:
                   `*現在の有効ツール:* \`${currentTool}\` (${currentAvailable ? '✅ 利用可能' : '❌ 未検出'})\n` +
-                  `*チャンネル固定ツール:* ${channelTool ? `\`${channelTool}\`` : '未設定'}\n` +
+                  `*チャンネル固定ツール:* ${channelToolLine}\n` +
                   `*デフォルトツール:* \`${defaultTool}\`\n` +
-                  `*利用可能候補:* ${availableTools.map(tool => `\`${tool.name}\``).join(', ')}`
+                  `*登録済みツール:* ${availableTools.map(tool => `\`${tool.name}\``).join(', ')}`
               }
             }
           ]
@@ -394,7 +443,7 @@ export class BotManager {
       if (action === 'use') {
         if (!value) {
           return {
-            text: '❌ 使用するツール名を指定してください。例: `/agent-tool use codex`'
+            text: '❌ 使用するツール名を指定してください。例: `/agent-tool use opencode`'
           };
         }
 
@@ -410,17 +459,28 @@ export class BotManager {
 
       if (action === 'clear') {
         const cleared = this.toolPreferenceService.clearChannelTool(message.channelId);
+        const defaultTool = this.toolClient.getDefaultToolName();
         return {
           text: cleared
-            ? '✅ チャンネル固定ツール設定を削除しました（デフォルトに戻りました）'
-            : 'ℹ️ チャンネル固定ツールは設定されていません'
+            ? `✅ チャンネル固定ツール設定を削除しました（デフォルト: \`${defaultTool}\` に戻りました）`
+            : `ℹ️ チャンネル固定ツールは設定されていません（デフォルト: \`${defaultTool}\`）`
+        };
+      }
+
+      if (action === 'reset') {
+        const count = this.toolPreferenceService.clearAll();
+        const defaultTool = this.toolClient.getDefaultToolName();
+        return {
+          text: count > 0
+            ? `✅ 全チャンネルのツール固定設定を削除しました（${count}件 → デフォルト: \`${defaultTool}\`）`
+            : `ℹ️ 固定ツール設定は1件もありませんでした（デフォルト: \`${defaultTool}\`）`
         };
       }
 
       return {
         text:
           '❌ 無効なサブコマンドです。\n' +
-          '使用方法: `/agent-tool status` `/agent-tool list` `/agent-tool use <tool>` `/agent-tool clear`'
+          '使用方法: `/agent-tool status` `/agent-tool list` `/agent-tool use <tool>` `/agent-tool clear` `/agent-tool reset`'
       };
     });
 
@@ -438,16 +498,17 @@ export class BotManager {
                 '• `/agent-tool status` - 現在の有効ツールを表示\n' +
                 '• `/agent-tool list` - 設定済みツール一覧とCLI検出状態を表示\n' +
                 '• `/agent-tool use <name>` - このチャンネルの既定ツールを設定\n' +
-                '• `/agent-tool clear` - チャンネル既定を解除（全体既定へ）\n' +
+                '• `/agent-tool clear` - このチャンネルの固定設定を解除（全体既定へ）\n' +
+                '• `/agent-tool reset` - 全チャンネルの固定設定を一括削除（全体既定に戻す）\n' +
                 '• `/agent-repo <URL>` - Gitリポジトリをクローンしてチャンネルにリンク\n' +
                 '• `/agent-repo status` - 現在のリポジトリ状態を確認\n' +
+                '• `/agent-repo create <name>` - 新規Gitリポジトリを作成してリンク\n' +
                 '• `/agent-repo tool <name>` - このチャンネル(=リポジトリ)の既定ツールを設定\n' +
                 '• `/agent-repo delete` - このチャンネルのリポジトリリンクを削除\n' +
                 '• `/agent-repo reset` - すべてのリポジトリリンクをリセット\n' +
                 '• `/agent-status` - ツールCLIとリポジトリの状態を確認\n' +
                 '• `/agent-clear` - 会話継続状態をクリア\n' +
-                '• `/agent-help` - このヘルプを表示\n\n' +
-                '_互換エイリアスとして `/claude*` 系コマンドも利用できます。_'
+                '• `/agent-help` - このヘルプを表示'
             }
           }
         ]
