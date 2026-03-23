@@ -6,7 +6,7 @@ Prepare briefing context for the current cycle. Summarize the current state, rec
 
 ## Checklist
 
-- [ ] Read goal.md
+- [ ] Read task files from .orcha/tasks/open/ and .orcha/tasks/in-progress/
 - [ ] Read status.md
 - [ ] Read recent status_log entries
 - [ ] Check inbox for external messages
@@ -15,7 +15,7 @@ Prepare briefing context for the current cycle. Summarize the current state, rec
 ## Output Format
 
 Provide a briefing document with:
-1. Goal summary
+1. Task summary
 2. Current progress
 3. Outstanding issues
 4. Inbox messages (if any)

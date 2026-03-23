@@ -30,13 +30,17 @@ export class GitService {
   }
 
   private sanitizeRepoName(url: string): string {
-    // Extract repo name from URL
-    const match = url.match(/([^\/]+?)(\.git)?$/);
-    if (!match) {
-      return `repo-${Date.now()}`;
+    // Extract repo name from URL or use as-is if it's a plain name
+    let repoName: string;
+    const urlMatch = url.match(/([^\/]+?)(\.git)?$/);
+    if (urlMatch) {
+      repoName = urlMatch[1];
+    } else {
+      repoName = url;
     }
+
     // パストラバーサルを防ぐため、危険な文字を除去
-    return match[1]
+    return repoName
       .replace(/\.\./g, '') // 上位ディレクトリ参照を除去
       .replace(/[^a-zA-Z0-9-_]/g, '-') // 許可された文字のみ
       .substring(0, 50); // 長さ制限
@@ -120,7 +124,7 @@ export class GitService {
         };
       }
       
-      const { stdout, stderr } = await execAsync('git pull', {
+      await execAsync('git pull', {
         cwd: localPath,
         maxBuffer: MAX_BUFFER,
         encoding: 'utf8',
@@ -179,8 +183,149 @@ export class GitService {
     return fs.existsSync(path.join(localPath, '.git'));
   }
 
+  private findExistingRepository(repoName: string, channelId: string): string | null {
+    const channelDir = path.join(this.reposDir, channelId);
+    if (!fs.existsSync(channelDir)) {
+      return null;
+    }
+
+    const entries = fs.readdirSync(channelDir);
+    for (const entry of entries) {
+      if (entry.startsWith(`${repoName}-`)) {
+        const fullPath = path.join(channelDir, entry);
+        if (fs.existsSync(path.join(fullPath, '.git'))) {
+          return fullPath;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  async createRepository(repoName: string, channelId: string): Promise<{ success: boolean; localPath?: string; error?: string }> {
+    // Validate repository name against allowed characters before sanitizing
+    if (!this.validateRepoName(repoName)) {
+      return {
+        success: false,
+        error: 'Invalid repository name'
+      };
+    }
+
+    try {
+      // チャンネル ID の検証
+      if (!ConfigValidator.validateChannelId(channelId)) {
+        return {
+          success: false,
+          error: 'Invalid channel ID'
+        };
+      }
+
+      // パストラバーサルチェック
+      const safeName = this.sanitizeRepoName(repoName);
+
+      if (!ConfigValidator.validatePath(path.join(this.reposDir, channelId), this.reposDir)) {
+        return {
+          success: false,
+          error: 'Invalid path detected'
+        };
+      }
+
+      // Check for duplicate repository names in the same channel
+      const existingRepo = this.findExistingRepository(safeName, channelId);
+      if (existingRepo) {
+        return {
+          success: false,
+          error: 'Repository directory already exists'
+        };
+      }
+
+      const timestamp = Date.now();
+      const channelDir = path.join(this.reposDir, channelId);
+      const localPath = path.join(channelDir, `${safeName}-${timestamp}`);
+
+      // Create channel directory if it doesn't exist
+      if (!fs.existsSync(channelDir)) {
+        fs.mkdirSync(channelDir, { recursive: true });
+      }
+
+      // Create the directory first
+      fs.mkdirSync(localPath, { recursive: true });
+
+      // Initialize empty Git repository
+      const { stdout: initOut, stderr: initErr } = await execAsync('git init', {
+        cwd: localPath,
+        maxBuffer: MAX_BUFFER,
+        encoding: 'utf8',
+        env: { ...process.env, LANG: 'ja_JP.UTF-8' }
+      });
+
+      if (initErr && !initOut.includes('hint')) {
+        return {
+          success: false,
+          error: 'Failed to initialize repository: ' + initErr
+        };
+      }
+
+      // Configure Git user (required for commits)
+      const gitEnv = { ...process.env, LANG: 'ja_JP.UTF-8' };
+      const execOpts = { cwd: localPath, maxBuffer: MAX_BUFFER, encoding: 'utf8' as const, env: gitEnv };
+
+      await execAsync('git config user.name "Bot"', execOpts);
+      await execAsync('git config user.email "bot@localhost"', execOpts);
+
+      // Create initial empty commit on main branch
+      await execAsync('git checkout -b main', execOpts);
+
+      fs.writeFileSync(path.join(localPath, '.gitkeep'), '');
+
+      await execAsync('git add .', execOpts);
+      await execAsync('git commit -m "Initial empty commit"', execOpts);
+
+      return {
+        success: true,
+        localPath
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: this.formatGitError(error)
+      };
+    }
+  }
+
   /**
-   * Gitエラーメッセージをフォーマットする
+   * リポジトリ名の検証
+   */
+  private validateRepoName(name: string): boolean {
+    if (!name || name.length === 0) {
+      return false;
+    }
+
+    if (name.length > 100) {
+      return false;
+    }
+
+    // パストラバーサル攻撃を防ぐ
+    if (name.includes('..') || name.includes('\\\\') || name.includes('/')) {
+      return false;
+    }
+
+    // 安全な文字のみを許可（英数字、ハイフン、アンダースコア）
+    if (!/^[a-zA-Z0-9_\-]+$/.test(name)) {
+      return false;
+    }
+
+    // 予約語を避ける
+    const reserved = ['node_modules', '.git', 'temp', 'tmp'];
+    if (reserved.includes(name)) {
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Git エラーメッセージをフォーマットする
    */
   private formatGitError(error: unknown): string {
     if (!(error instanceof Error)) {

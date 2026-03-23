@@ -563,16 +563,17 @@ export class BotManager {
     registerCommandAliases(['agent-repo', 'claude-repo'], async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text) {
         return {
-          text: '📝 使い方: `/agent-repo <リポジトリURL>` でクローン、`/agent-repo status` で状態確認、`/agent-repo tool <name>` で既定ツール設定',
+          text: '📝 使い方：`/agent-repo create <name>` で作成、`/agent-repo <URL>` でクローン、`/agent-repo status` で状態確認',
           blocks: [
             {
               type: 'section',
               text: {
                 type: 'mrkdwn',
                 text: '*リポジトリ管理コマンド*\n\n' +
-                  '• `/agent-repo <リポジトリURL>` - リポジトリをクローンしてチャンネルに紐付け\n' +
+                  '• `/agent-repo create <name>` - 新しいリポジトリを作成してチャンネルに紐付け\n' +
+                  '• `/agent-repo <リポジトリ URL>` - リポジトリをクローンしてチャンネルに紐付け\n' +
                   '• `/agent-repo status` - 現在のリポジトリ状態を確認\n' +
-                  '• `/agent-repo tool <name>` - このチャンネル(=リポジトリ)の既定ツールを設定\n' +
+                  '• `/agent-repo tool <name>` - このチャンネル (=リポジトリ) の既定ツールを設定\n' +
                   '• `/agent-repo delete` - チャンネルとリポジトリの紐付けを削除'
               }
             }
@@ -585,7 +586,7 @@ export class BotManager {
 
       if (args === 'tool') {
         return {
-          text: '❌ ツール名を指定してください。例: `/agent-repo tool vibe-local`'
+          text: '❌ ツール名を指定してください。例：`/agent-repo tool vibe-local`'
         };
       }
 
@@ -593,7 +594,7 @@ export class BotManager {
         const requestedTool = rawArgs.split(/\s+/, 2)[1]?.trim();
         if (!requestedTool) {
           return {
-            text: '❌ ツール名を指定してください。例: `/agent-repo tool codex`'
+            text: '❌ ツール名を指定してください。例：`/agent-repo tool codex`'
           };
         }
 
@@ -607,7 +608,7 @@ export class BotManager {
         const repo = this.storageService.getChannelRepository(message.channelId);
 
         return {
-          text: `✅ このチャンネル(=リポジトリ)の既定ツールを \`${toolName}\` に設定しました`,
+          text: `✅ このチャンネル (=リポジトリ) の既定ツールを \`${toolName}\` に設定しました`,
           blocks: [
             {
               type: 'section',
@@ -615,9 +616,9 @@ export class BotManager {
                 type: 'mrkdwn',
                 text:
                   `*既定ツールを更新しました*\n\n` +
-                  `チャンネルID: ${message.channelId}\n` +
-                  `既定ツール: \`${toolName}\`\n` +
-                  `リンク済みリポジトリ: ${repo ? repo.repositoryUrl : '未設定'}`
+                  `チャンネル ID: ${message.channelId}\n` +
+                  `既定ツール：\`${toolName}\`\n` +
+                  `リンク済みリポジトリ：${repo ? repo.repositoryUrl : '未設定'}`
               }
             }
           ]
@@ -628,7 +629,7 @@ export class BotManager {
         const resolvedRepository = await this.resolveChannelRepository(message.channelId);
         if (resolvedRepository.error) {
           return {
-            text: `❌ リポジトリのローカルパスが見つからず、再クローンに失敗しました: ${resolvedRepository.error}`
+            text: `❌ リポジトリのローカルパスが見つからず、再クローンに失敗しました：${resolvedRepository.error}`
           };
         }
 
@@ -644,12 +645,12 @@ export class BotManager {
         const status = await this.gitService.getRepositoryStatus(repo.localPath);
         if (!status.success) {
           return {
-            text: `❌ リポジトリの状態を取得できませんでした: ${status.error}`
+            text: `❌ リポジトリの状態を取得できませんでした：${status.error}`
           };
         }
 
         return {
-          text: `リポジトリ: ${repo.repositoryUrl}`,
+          text: `リポジトリ：${repo.repositoryUrl}`,
           blocks: [
             {
               type: 'section',
@@ -657,10 +658,10 @@ export class BotManager {
                 type: 'mrkdwn',
                 text: `*リポジトリ情報*\n\n` +
                   `URL: ${repo.repositoryUrl}\n` +
-                  `有効ツール: \`${effectiveTool}\`\n` +
-                  `クローン日時: ${new Date(repo.createdAt).toLocaleString('ja-JP')}\n` +
-                  `${resolvedRepository.restored ? '補足: localPath が存在しなかったため再クローンしました\n' : ''}\n` +
-                  `*Git状態*\n\`\`\`${status.status}\`\`\``
+                  `有効ツール：\`${effectiveTool}\`\n` +
+                  `クローン日時：${new Date(repo.createdAt).toLocaleString('ja-JP')}\n` +
+                  `${resolvedRepository.restored ? '補足：localPath が存在しなかったため再クローンしました\n' : ''}\n` +
+                  `*Git 状態*\n\`\`\`${status.status}\`\`\``
               }
             }
           ]
@@ -705,7 +706,7 @@ export class BotManager {
               text: {
                 type: 'mrkdwn',
                 text: `*リポジトリ関係のリセット完了*\n\n` +
-                  `削除されたチャンネル数: ${channelCount}\n\n` +
+                  `削除されたチャンネル数：${channelCount}\n\n` +
                   'すべてのチャンネルのリポジトリ紐付けが削除されました。'
               }
             }
@@ -713,35 +714,108 @@ export class BotManager {
         };
       }
 
-      const repoUrl = message.text.trim();
-      if (!repoUrl.match(/^(https?:\/\/|git@)/)) {
+      if (args.startsWith('create ')) {
+        const repoName = rawArgs.split(/\s+/, 2)[1]?.trim();
+        if (!repoName) {
+          return {
+            text: '❌ リポジトリ名を指定してください。例：`/agent-repo create my-project`'
+          };
+        }
+
+        if (this.storageService.isRepositoryNameExists(repoName)) {
+          return {
+            text: `❌ 同じ名前のリポジトリが既に存在します：${repoName}`
+          };
+        }
+
+        const createResult = await this.gitService.createRepository(repoName, message.channelId);
+        if (!createResult.success) {
+          return {
+            text: `❌ リポジトリの作成に失敗しました：${createResult.error}`
+          };
+        }
+
+        this.storageService.setChannelRepository(message.channelId, `local://${repoName}`, createResult.localPath!);
+        const clearedConversationCount = this.clearConversationState(message.channelId);
+
         return {
-          text: '❌ 有効なリポジトリURLを入力してください（HTTPSまたはSSH形式）'
+          text: '✅ リポジトリを作成しました！',
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `*リポジトリの作成が完了しました*\n\n` +
+                  `名前：${repoName}\n` +
+                  `チャンネル：<#${message.channelId}>\n\n` +
+                  `会話状態クリア：${clearedConversationCount}件\n\n` +
+                  'これでこのチャンネルでツールを実行すると、このリポジトリのコンテキストで応答します。'
+              }
+            }
+          ]
         };
       }
 
-      const cloneResult = await this.gitService.cloneRepository(repoUrl, message.channelId);
-      if (!cloneResult.success) {
+      // Handle URL clone (default case)
+      if (/^https?:\/\//.test(args)) {
+        const url = rawArgs.trim();
+
+        // Derive repo name from URL for duplicate check before cloning
+        let tempRepoName: string | null = null;
+        try {
+          const tempUrl = new URL(url);
+          const pathParts = tempUrl.pathname.replace(/\.git$/, '').split('/');
+          const lastPart = pathParts[pathParts.length - 1];
+          if (lastPart) {
+            tempRepoName = lastPart.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+          }
+        } catch {}
+
+        if (tempRepoName && this.storageService.isRepositoryNameExists(tempRepoName)) {
+          return {
+            text: `❌ 同じ名前のリポジトリが既に存在します：${tempRepoName}`
+          };
+        }
+
+        const cloneResult = await this.gitService.cloneRepository(url, message.channelId);
+        if (!cloneResult.success) {
+          return {
+            text: `❌ リポジトリのクローンに失敗しました：${cloneResult.error}`
+          };
+        }
+
+        this.storageService.setChannelRepository(message.channelId, url, cloneResult.localPath!);
+        const clearedConversationCount = this.clearConversationState(message.channelId);
+
         return {
-          text: `❌ リポジトリのクローンに失敗しました: ${cloneResult.error}`
+          text: '✅ リポジトリをクローンしました！',
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `*リポジトリのクローンが完了しました*\n\n` +
+                  `URL：${url}\n` +
+                  `名前：${tempRepoName || 'unknown'}\n` +
+                  `チャンネル：<#${message.channelId}>\n\n` +
+                  `会話状態クリア：${clearedConversationCount}件\n\n` +
+                  'これでこのチャンネルでツールを実行すると、このリポジトリのコンテキストで応答します。'
+              }
+            }
+          ]
         };
       }
-
-      const clearedConversationCount = this.clearConversationState(message.channelId);
-      this.storageService.setChannelRepository(message.channelId, repoUrl, cloneResult.localPath!);
 
       return {
-        text: '✅ リポジトリをクローンしました！',
+        text: '❌ 無効なコマンドです。`/agent-repo` を実行して使い方をご確認ください。',
         blocks: [
           {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `*リポジトリのクローンが完了しました*\n\n` +
-                `URL: ${repoUrl}\n` +
-                `チャンネル: <#${message.channelId}>\n\n` +
-                `会話状態クリア: ${clearedConversationCount}件\n\n` +
-                'これでこのチャンネルでツールを実行すると、このリポジトリのコンテキストで応答します。'
+              text: '*無効なコマンド*\n\n' +
+                '使用法：`/agent-repo create <name>`、`/agent-repo <URL>`、`/agent-repo status` など\n\n' +
+                '`/agent-repo` を実行して詳細を表示します。'
             }
           }
         ]
