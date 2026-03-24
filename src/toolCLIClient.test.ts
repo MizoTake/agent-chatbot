@@ -228,6 +228,48 @@ test('ToolCLIClient: add resume option per tool', () => {
 });
 
 // ────────────────────────────────────────────────────────────────────────────
+// processOutput — LLM 特殊トークンのフィルタリング
+// ────────────────────────────────────────────────────────────────────────────
+
+test('processOutput: <|special_token|> 形式のトークンを除去する', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+  const process = (client as any).processOutput.bind(client);
+
+  // 実際に観測されたパターン: <|channel|>, <|constrain|>
+  assert.equal(
+    process('<|channel|>こんにちは'),
+    'こんにちは'
+  );
+  assert.equal(
+    process('返答です<|constrain|>'),
+    '返答です'
+  );
+  assert.equal(
+    process('<|channel|>comment?… 本文 <|constrain|>'),
+    'comment?… 本文'
+  );
+
+  client.cleanup();
+});
+
+test('processOutput: to=functions.xxx 形式の漏れたツール呼び出し行を除去する', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+  const process = (client as any).processOutput.bind(client);
+
+  // 実際に観測されたパターン: to=functions.read... で応答が終わる
+  assert.equal(
+    process('正常な回答\nto=functions.read filePath="src/foo.ts"'),
+    '正常な回答'
+  );
+  assert.equal(
+    process('to=functions.read filePath="src/foo.ts"\n正常な回答'),
+    '正常な回答'
+  );
+
+  client.cleanup();
+});
+
+// ────────────────────────────────────────────────────────────────────────────
 // parseToolOutput / parseOpencodeJsonOutput — 実際のレスポンス形式を検証する
 // ────────────────────────────────────────────────────────────────────────────
 

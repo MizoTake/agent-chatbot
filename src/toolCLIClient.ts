@@ -388,10 +388,20 @@ export class ToolCLIClient {
 
   private processOutput(output: string): string {
     let processed = output.trim();
+    // Strip ANSI color codes
     processed = processed.replace(/\x1b\[[0-9;]*m/g, '');
+    // Strip non-printable control characters
     processed = processed.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    // Strip LLM-internal special tokens: <|token_name|>
+    // These leak out when local models (e.g. gpt-oss, Qwen) emit tool-call
+    // control tokens as plain text.
+    processed = processed.replace(/<\|[^|]{1,64}\|>/g, '');
+    // Strip leaked tool-call lines such as "to=functions.read ..." that some
+    // models emit before or after the actual answer.
+    processed = processed.replace(/^to=\S+.*$/gm, '');
+    // Collapse runs of blank lines left after stripping
     processed = processed.replace(/\n{3,}/g, '\n\n');
-    return processed;
+    return processed.trim();
   }
 
   /**
