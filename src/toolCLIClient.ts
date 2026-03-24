@@ -398,18 +398,49 @@ export class ToolCLIClient {
    * Parse opencode NDJSON output (--format json).
    * Each line is a JSON event. Text is accumulated from message.part.updated events
    * where properties.part.type === "text". The sessionID field is present on every event.
+   *
+   * Uses brace-depth extraction instead of newline splitting so that events concatenated
+   * without a newline separator (e.g. LMStudio chunk merging) are still parsed correctly.
    */
+  private extractJsonObjects(text: string): string[] {
+    const objects: string[] = [];
+    let depth = 0;
+    let start = -1;
+    let inString = false;
+    let escape = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+
+      if (escape) { escape = false; continue; }
+      if (ch === '\\' && inString) { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+
+      if (ch === '{') {
+        if (depth === 0) start = i;
+        depth++;
+      } else if (ch === '}') {
+        depth--;
+        if (depth === 0 && start >= 0) {
+          objects.push(text.slice(start, i + 1));
+          start = -1;
+        }
+      }
+    }
+
+    return objects;
+  }
+
   private parseOpencodeJsonOutput(stdout: string): { response: string; sessionId?: string } {
-    const lines = stdout.trim().split('\n');
+    const objects = this.extractJsonObjects(stdout);
     const partOrder: string[] = [];
     const partTexts = new Map<string, string>();
     let sessionId: string | undefined;
 
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
+    for (const raw of objects) {
       try {
-        const event = JSON.parse(trimmed);
+        const event = JSON.parse(raw);
         if (typeof event.sessionID === 'string' && event.sessionID) {
           sessionId = event.sessionID;
         }

@@ -287,6 +287,26 @@ test('parseToolOutput: opencode — message.part.updated 形式 (旧 API) にも
   client.cleanup();
 });
 
+test('parseToolOutput: opencode — 改行なしで結合されたチャンクも正しく解析できる', () => {
+  const client = new ToolCLIClient({}, 'claude', 5000);
+  const parse = (client as any).parseToolOutput.bind(client);
+  const opencodeTool = { name: 'opencode', command: 'opencode', args: [], versionArgs: [], supportsSkipPermissions: false };
+
+  // LMStudio がチャンクを改行なしで結合して送出するケース (実際に観測されたパターン)
+  // 壊れた例: {"type\m","type":"step-start",...} のように途中から次のオブジェクトが始まる
+  // ここでは改行なしで2つの完全なオブジェクトが連続するケースを検証する
+  const merged =
+    JSON.stringify({ type: 'step_start', sessionID: 'ses_merged01', part: { id: 'prt_s', type: 'step-start' } }) +
+    JSON.stringify({ type: 'text', sessionID: 'ses_merged01', part: { id: 'prt_t', type: 'text', text: '結合されたチャンク' } }) +
+    JSON.stringify({ type: 'step_finish', sessionID: 'ses_merged01', part: { id: 'prt_f', type: 'step-finish', reason: 'stop' } });
+
+  const result = parse(opencodeTool, merged);
+  assert.equal(result.sessionId, 'ses_merged01');
+  assert.equal(result.response, '結合されたチャンク');
+
+  client.cleanup();
+});
+
 test('parseToolOutput: opencode — JSON 以外の行は無視してクラッシュしない', () => {
   const client = new ToolCLIClient({}, 'claude', 5000);
   const parse = (client as any).parseToolOutput.bind(client);
