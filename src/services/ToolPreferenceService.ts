@@ -1,5 +1,4 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import { BaseStorageService } from './BaseStorageService';
 
 export interface ChannelToolPreference {
   channelId: string;
@@ -8,36 +7,9 @@ export interface ChannelToolPreference {
   updatedAt: string;
 }
 
-export class ToolPreferenceService {
-  private storageFile: string;
-  private data: Map<string, ChannelToolPreference>;
-
+export class ToolPreferenceService extends BaseStorageService<ChannelToolPreference> {
   constructor(storageFile: string = 'channel-tools.json') {
-    this.storageFile = path.resolve(process.cwd(), storageFile);
-    this.data = new Map();
-    this.loadData();
-  }
-
-  private loadData(): void {
-    try {
-      if (fs.existsSync(this.storageFile)) {
-        const fileContent = fs.readFileSync(this.storageFile, 'utf-8');
-        const jsonData = JSON.parse(fileContent);
-        this.data = new Map(Object.entries(jsonData));
-      }
-    } catch (error) {
-      console.error('Failed to load tool preferences:', error);
-      this.data = new Map();
-    }
-  }
-
-  private saveData(): void {
-    try {
-      const jsonData = Object.fromEntries(this.data);
-      fs.writeFileSync(this.storageFile, JSON.stringify(jsonData, null, 2));
-    } catch (error) {
-      console.error('Failed to save tool preferences:', error);
-    }
+    super(storageFile);
   }
 
   setChannelTool(channelId: string, toolName: string): void {

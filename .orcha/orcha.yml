@@ -3,12 +3,12 @@ version: 1
 agents:
   local_llm:
     mode: "cli"
-    model: "lmstudio/qwen/qwen3.5-9b"
+    # model: "lmstudio/qwen/qwen3.5-9b"
     # model: "lmstudio/qwen3.5-27b"
     # model: "lmstudio/qwen/qwen3.5-9b"
     # model: "lmstudio/qwen3.5-122b-a10b"
     # model: "lmstudio/qwen/qwen3-coder-30b"
-    # model: "lmstudio/openai/gpt-oss-120b"
+    model: "lmstudio/unsloth/gpt-oss-120b"
     cli:
       command: "bash"
       args: ["scripts/opencode-monitor.sh", "run", "--thinking", "--format=json"]
@@ -17,9 +17,9 @@ agents:
 
   local_llm_reviewer:
     mode: "cli"
-    model: "lmstudio/qwen/qwen3.5-9b"
+    # model: "lmstudio/qwen/qwen3.5-9b"
     # model: "lmstudio/qwen/qwen3-coder-30b"
-    # model: "lmstudio/openai/gpt-oss-120b"
+    model: "lmstudio/unsloth/gpt-oss-120b"
     cli:
       command: "bash"
       args: ["scripts/opencode-monitor.sh", "run", "--thinking", "--format=json"]

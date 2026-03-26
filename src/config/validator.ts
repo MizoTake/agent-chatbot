@@ -2,6 +2,8 @@
  * 環境変数の検証とサニタイズ
  */
 
+import * as path from 'path';
+
 interface EnvironmentVariables {
   // Slack
   SLACK_BOT_TOKEN?: string;
@@ -177,5 +179,3 @@ export class ConfigValidator {
     }
   }
 }
-
-import * as path from 'path';
