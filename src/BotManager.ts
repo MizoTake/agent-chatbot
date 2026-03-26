@@ -60,7 +60,7 @@ export class BotManager {
 
       // opencode: LMStudio用モニタースクリプト or 直接実行を環境変数で切り替え
       const opencodeUseMonitor = (process.env.OPENCODE_USE_MONITOR || 'false').toLowerCase() === 'true';
-      const opencodeCommand = opencodeUseMonitor ? 'bash' : (process.env.OPENCODE_COMMAND || 'opencode');
+      const opencodeCommand = opencodeUseMonitor ? 'bash' : (process.env.OPENCODE_COMMAND || 'opencode-cli');
       // モニタースクリプトは絶対パスで渡す（spawn の cwd がリポジトリパスになる場合でも解決できるように）
       const monitorScriptPath = path.resolve(process.cwd(), 'scripts', 'opencode-monitor.sh');
       const opencodeArgs = opencodeUseMonitor
@@ -224,6 +224,19 @@ export class BotManager {
       return { repository };
     }
 
+    // Locally-created repositories cannot be re-cloned from a remote URL
+    if (repository.repositoryUrl.startsWith('local://')) {
+      logger.warn('Locally-created repository is missing and cannot be re-cloned', {
+        channelId,
+        repositoryUrl: repository.repositoryUrl,
+        missingLocalPath: repository.localPath
+      });
+      return {
+        repository,
+        error: 'ローカルリポジトリのディレクトリが見つかりません。`/agent-repo delete` で登録を削除してから再作成してください。'
+      };
+    }
+
     logger.warn('Repository localPath not found. Re-cloning linked repository', {
       channelId,
       repositoryUrl: repository.repositoryUrl,
@@ -334,6 +347,21 @@ export class BotManager {
     if (result.error) {
       return {
         text: `❌ [${toolName}] ${result.error}`
+      };
+    }
+
+    if (!result.response?.trim()) {
+      logger.warn('Empty response from tool', {
+        toolName,
+        sessionId: result.sessionId,
+        hasError: !!result.error,
+        timedOut: result.timedOut
+      });
+      // Provide a more actionable message — the tool ran successfully (no error)
+      // but produced no displayable output. This often means the LLM responded
+      // with only tool calls / internal tokens and no user-facing text.
+      return {
+        text: `⚠️ [${toolName}] ツールは正常に実行されましたが、表示可能な応答がありませんでした。ツールがコード編集などの操作のみを行った可能性があります。再度お試しください。`
       };
     }
 

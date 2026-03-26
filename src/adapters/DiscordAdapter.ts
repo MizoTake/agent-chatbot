@@ -1,5 +1,8 @@
 import { Client, GatewayIntentBits, Message, Interaction, TextChannel, DMChannel, Partials } from 'discord.js';
 import { BotAdapter, BotMessage, BotResponse } from '../interfaces/BotInterface';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('DiscordAdapter');
 
 const DISCORD_CONTENT_MAX_LENGTH = 2000;
 const DISCORD_EMBED_DESCRIPTION_MAX_LENGTH = 4096;
@@ -49,7 +52,8 @@ export class DiscordAdapter implements BotAdapter {
   private ensureRestTokenConfigured(context: string): boolean {
     const normalizedToken = this.token?.trim();
     if (!this.isLoggedIn || !normalizedToken) {
-      console.warn(`Skip Discord request (${context}): token is not ready`, {
+      logger.warn(`Skip Discord request: token is not ready`, {
+        context,
         isLoggedIn: this.isLoggedIn,
         hasToken: Boolean(this.client.token),
       });
@@ -64,7 +68,7 @@ export class DiscordAdapter implements BotAdapter {
     // Use 'on' (not 'once') so reconnections after session expiry also update
     // botUserId and re-register slash commands.
     this.client.on('ready', () => {
-      console.log(`Discord bot logged in as ${this.client.user?.tag}`);
+      logger.info('Discord bot logged in', { tag: this.client.user?.tag });
       this.botUserId = this.client.user?.id;
       void this.syncIdentity();
       void this.registerSlashCommands();
@@ -74,10 +78,10 @@ export class DiscordAdapter implements BotAdapter {
       // Close codes that discord.js will NOT auto-recover from
       const NON_RECOVERABLE_CODES = new Set([4004, 4010, 4011, 4012, 4013, 4014]);
       if (NON_RECOVERABLE_CODES.has(event.code)) {
-        console.error(`Discord shard ${shardId} disconnected with non-recoverable code ${event.code} — bot requires restart`);
+        logger.error('Discord shard disconnected with non-recoverable code — bot requires restart', undefined, { shardId, code: event.code });
         this.isLoggedIn = false;
       } else {
-        console.warn(`Discord shard ${shardId} disconnected (code: ${event.code}), waiting for auto-reconnect...`);
+        logger.warn('Discord shard disconnected, waiting for auto-reconnect', { shardId, code: event.code });
       }
     });
 
@@ -100,9 +104,35 @@ export class DiscordAdapter implements BotAdapter {
           };
 
           if (this.messageHandler) {
-            if (isGuildChannel && !isMention) {
-              if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('messageCreate:thinking')) {
-                console.warn('Skip Discord reply in messageCreate: token is not ready', {
+            if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('messageCreate:thinking')) {
+              logger.warn('Skip Discord reply in messageCreate: token is not ready', {
+                isLoggedIn: this.isLoggedIn,
+                hasToken: Boolean(this.client.token),
+                channelId: message.channelId,
+              });
+              return;
+            }
+
+            // Show typing indicator while processing (refreshes every 8s)
+            const channel = message.channel;
+            const sendTyping = () => {
+              if ('sendTyping' in channel && typeof channel.sendTyping === 'function') {
+                (channel.sendTyping() as Promise<void>).catch(() => {});
+              }
+            };
+            const typingInterval = setInterval(sendTyping, 8000);
+            sendTyping();
+
+            let response: BotResponse | null;
+            try {
+              response = await this.messageHandler(botMessage);
+            } finally {
+              clearInterval(typingInterval);
+            }
+
+            if (response) {
+              if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('messageCreate:reply')) {
+                logger.warn('Skip Discord reply after handler: token is not ready', {
                   isLoggedIn: this.isLoggedIn,
                   hasToken: Boolean(this.client.token),
                   channelId: message.channelId,
@@ -110,38 +140,14 @@ export class DiscordAdapter implements BotAdapter {
                 return;
               }
 
-              const thinkingMsg = await message.reply({
-                content: 'Thinking...',
-                allowedMentions: {
-                  repliedUser: false,
-                },
-              });
-
-              const response = await this.messageHandler(botMessage);
-              if (response) {
-                if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('messageCreate:reply')) {
-                  console.warn('Skip Discord reply after handler: token is not ready', {
-                    isLoggedIn: this.isLoggedIn,
-                    hasToken: Boolean(this.client.token),
-                    channelId: message.channelId,
-                  });
-                  return;
-                }
-
-                await message.reply({
-                  ...this.buildMessagePayload(response),
-                  allowedMentions: {
-                    repliedUser: true,
-                  },
-                });
-                await thinkingMsg.delete().catch(() => {
-                  // Ignore delete errors
-                });
-              }
-            } else {
-              const response = await this.messageHandler(botMessage);
-              if (response) {
-                await this.sendMessage(message.channelId, response);
+              if (isGuildChannel && !isMention) {
+                // Guild channel (not a mention): reply to the original message
+                await this.sendSplitReply(message, response);
+              } else if (isMention) {
+                await this.sendSplitReply(message, response);
+              } else {
+                // DM
+                await this.sendSplitMessage(message.channelId, response);
               }
             }
           }
@@ -168,7 +174,7 @@ export class DiscordAdapter implements BotAdapter {
         const handler = this.commandHandlers.get(interaction.commandName);
         if (handler) {
           if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('interactionCreate:defer')) {
-            console.warn('Skip interaction processing: token is not ready', {
+            logger.warn('Skip interaction processing: token is not ready', {
               isLoggedIn: this.isLoggedIn,
               hasToken: Boolean(this.client.token),
               commandName: interaction.commandName,
@@ -180,14 +186,26 @@ export class DiscordAdapter implements BotAdapter {
           const response = await handler(botMessage);
           if (response) {
             if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('interactionCreate:reply')) {
-              console.warn('Skip interaction reply: token is not ready', {
+              logger.warn('Skip interaction reply: token is not ready', {
                 isLoggedIn: this.isLoggedIn,
                 hasToken: Boolean(this.client.token),
                 commandName: interaction.commandName,
               });
               return;
             }
-            await interaction.editReply(this.buildMessagePayload(response));
+            const text = this.extractResponseText(response);
+            const chunks = this.splitText(text);
+
+            if (chunks.length === 0) {
+              await interaction.editReply({ content: '(empty response)' });
+            } else {
+              // First chunk as the deferred reply edit
+              await interaction.editReply({ content: chunks[0] });
+              // Remaining chunks as follow-up messages
+              for (let i = 1; i < chunks.length; i++) {
+                await interaction.followUp({ content: chunks[i] });
+              }
+            }
           }
         }
       } catch (error) {
@@ -205,16 +223,16 @@ export class DiscordAdapter implements BotAdapter {
     try {
       if (this.client.user.username !== normalizedAgentName) {
         await this.client.user.setUsername(normalizedAgentName);
-        console.log(`Discord bot username updated to ${normalizedAgentName}`);
+        logger.info('Discord bot username updated', { username: normalizedAgentName });
       }
     } catch (error) {
-      console.warn(`Failed to update Discord bot username to ${normalizedAgentName}:`, error);
+      logger.warn('Failed to update Discord bot username', { username: normalizedAgentName, error });
     }
 
     try {
       this.client.user.setActivity(`${normalizedAgentName} ready`);
     } catch (error) {
-      console.warn('Failed to update Discord bot presence:', error);
+      logger.warn('Failed to update Discord bot presence', { error });
     }
   }
 
@@ -230,6 +248,78 @@ export class DiscordAdapter implements BotAdapter {
       return text;
     }
     return text.slice(0, maxLength);
+  }
+
+  /**
+   * Split a long text into chunks that fit within Discord's content limit.
+   * Splits at natural boundaries: code block closings, newlines, then spaces.
+   */
+  private splitText(text: string, maxLength: number = DISCORD_CONTENT_MAX_LENGTH): string[] {
+    if (text.length <= maxLength) {
+      return [text];
+    }
+
+    const chunks: string[] = [];
+    let remaining = text;
+
+    while (remaining.length > 0) {
+      if (remaining.length <= maxLength) {
+        chunks.push(remaining);
+        break;
+      }
+
+      let splitIndex = -1;
+      const searchRange = remaining.slice(0, maxLength);
+
+      // 1. Try to split at end of a code block (```)
+      const codeBlockEnd = searchRange.lastIndexOf('\n```\n');
+      if (codeBlockEnd > maxLength * 0.3) {
+        splitIndex = codeBlockEnd + 4; // after "```\n"
+      }
+
+      // 2. Try to split at a blank line
+      if (splitIndex < 0) {
+        const blankLine = searchRange.lastIndexOf('\n\n');
+        if (blankLine > maxLength * 0.3) {
+          splitIndex = blankLine + 1;
+        }
+      }
+
+      // 3. Try to split at a newline
+      if (splitIndex < 0) {
+        const newline = searchRange.lastIndexOf('\n');
+        if (newline > maxLength * 0.3) {
+          splitIndex = newline + 1;
+        }
+      }
+
+      // 4. Try to split at a space
+      if (splitIndex < 0) {
+        const space = searchRange.lastIndexOf(' ');
+        if (space > maxLength * 0.3) {
+          splitIndex = space + 1;
+        }
+      }
+
+      // 5. Hard split as last resort
+      if (splitIndex < 0) {
+        splitIndex = maxLength;
+      }
+
+      const chunk = remaining.slice(0, splitIndex);
+      chunks.push(chunk);
+      remaining = remaining.slice(splitIndex);
+
+      // If a code block is open in this chunk but not closed, close it and
+      // re-open in the next chunk so Discord renders both correctly.
+      const backtickCount = (chunk.match(/```/g) || []).length;
+      if (backtickCount % 2 !== 0) {
+        chunks[chunks.length - 1] += '\n```';
+        remaining = '```\n' + remaining;
+      }
+    }
+
+    return chunks;
   }
 
   private convertBlocksToEmbeds(blocks: any[]): any[] {
@@ -268,24 +358,24 @@ export class DiscordAdapter implements BotAdapter {
       return { embeds };
     }
 
-    const content = this.truncateText(response.text, DISCORD_CONTENT_MAX_LENGTH) || ' ';
-    return { content };
+    const content = this.truncateText(response.text?.trim() || response.text, DISCORD_CONTENT_MAX_LENGTH);
+    return { content: content || '(empty response)' };
   }
 
   private logDiscordApiError(context: string, error: unknown): void {
     const apiError = error as { rawError?: { errors?: unknown } };
     if (apiError?.rawError?.errors) {
-      console.error(
-        `Discord API validation errors (${context}):`,
-        JSON.stringify(apiError.rawError.errors, null, 2)
-      );
+      logger.error('Discord API validation errors', undefined, {
+        context,
+        errors: JSON.stringify(apiError.rawError.errors, null, 2)
+      });
     }
-    console.error(`Discord handler error (${context}):`, error);
+    logger.error('Discord handler error', error instanceof Error ? error : undefined, { context });
   }
 
   private async registerSlashCommands(): Promise<void> {
     if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('registerSlashCommands')) {
-      console.warn('Skip slash command registration: token is not ready', {
+      logger.warn('Skip slash command registration: token is not ready', {
         isLoggedIn: this.isLoggedIn,
         hasToken: Boolean(this.client.token),
       });
@@ -351,7 +441,7 @@ export class DiscordAdapter implements BotAdapter {
 
     try {
       await this.client.application?.commands.set(commands);
-      console.log('Discord slash commands registered');
+      logger.info('Discord slash commands registered');
     } catch (error) {
       this.logDiscordApiError('registerSlashCommands', error);
     }
@@ -359,7 +449,7 @@ export class DiscordAdapter implements BotAdapter {
 
   async start(): Promise<void> {
     if (this.isLoggedIn) {
-      console.log('Discord bot is already running');
+      logger.info('Discord bot is already running');
       return;
     }
 
@@ -371,19 +461,79 @@ export class DiscordAdapter implements BotAdapter {
     await this.client.login(normalizedToken);
     this.client.rest.setToken(normalizedToken);
     this.isLoggedIn = true;
-    console.log('Discord bot starting...');
+    logger.info('Discord bot starting');
   }
 
   async stop(): Promise<void> {
     this.isLoggedIn = false;
     await this.client.destroy();
-    console.log('Discord bot stopped');
+    logger.info('Discord bot stopped');
+  }
+
+  /**
+   * Extract the full text content from a BotResponse (blocks or text).
+   */
+  private extractResponseText(response: BotResponse): string {
+    if (response.blocks && response.blocks.length > 0) {
+      const texts = response.blocks
+        .filter((b: any) => b?.type === 'section' && typeof b?.text?.text === 'string')
+        .map((b: any) => b.text.text);
+      if (texts.length > 0) {
+        return texts.join('\n\n');
+      }
+    }
+    return response.text || '';
+  }
+
+  /**
+   * Send a response as multiple messages if it exceeds Discord limits.
+   */
+  private async sendSplitMessage(channelId: string, response: BotResponse): Promise<void> {
+    const text = this.extractResponseText(response);
+    const chunks = this.splitText(text);
+
+    const channel = await this.client.channels.fetch(channelId);
+    if (!channel || !(channel instanceof TextChannel || channel instanceof DMChannel)) {
+      return;
+    }
+
+    for (const chunk of chunks) {
+      await channel.send({ content: chunk });
+    }
+  }
+
+  /**
+   * Reply to a message, splitting into multiple messages if needed.
+   * First chunk is a reply; subsequent chunks are follow-up messages.
+   */
+  private async sendSplitReply(originalMessage: Message, response: BotResponse): Promise<void> {
+    const text = this.extractResponseText(response);
+    const chunks = this.splitText(text);
+
+    if (chunks.length === 0) {
+      await originalMessage.reply({ content: '(empty response)', allowedMentions: { repliedUser: true } });
+      return;
+    }
+
+    // First chunk as a reply
+    await originalMessage.reply({
+      content: chunks[0],
+      allowedMentions: { repliedUser: true },
+    });
+
+    // Remaining chunks as follow-up messages in the same channel
+    const channel = originalMessage.channel;
+    if ('send' in channel && typeof channel.send === 'function') {
+      for (let i = 1; i < chunks.length; i++) {
+        await channel.send({ content: chunks[i] });
+      }
+    }
   }
 
   async sendMessage(channelId: string, response: BotResponse): Promise<void> {
     try {
       if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('sendMessage')) {
-        console.warn('Skip sendMessage: token is not ready', {
+        logger.warn('Skip sendMessage: token is not ready', {
           isLoggedIn: this.isLoggedIn,
           hasToken: Boolean(this.client.token),
           channelId,
@@ -391,17 +541,14 @@ export class DiscordAdapter implements BotAdapter {
         return;
       }
 
-      const channel = await this.client.channels.fetch(channelId);
-      if (channel && (channel instanceof TextChannel || channel instanceof DMChannel)) {
-        await channel.send(this.buildMessagePayload(response));
-      }
+      await this.sendSplitMessage(channelId, response);
     } catch (error) {
       this.logDiscordApiError('sendMessage', error);
     }
   }
 
   async sendThinkingMessage(channelId: string): Promise<void> {
-    await this.sendMessage(channelId, { text: 'Thinking...' });
+    await this.sendMessage(channelId, { text: '🤔 処理中...' });
   }
 
   onMessage(handler: (message: BotMessage) => Promise<BotResponse | null>): void {

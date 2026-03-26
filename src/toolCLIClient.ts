@@ -442,11 +442,73 @@ export class ToolCLIClient {
     return objects;
   }
 
+  /**
+   * Check whether an NDJSON event type is one that carries displayable text.
+   * We accept known types explicitly and also match patterns commonly used
+   * by opencode variants / different LLM backends.
+   */
+  private isTextEventType(eventType: string): boolean {
+    // Known types observed in production
+    if (eventType === 'text' || eventType === 'message.part.updated') {
+      return true;
+    }
+    // Additional types seen in various opencode / LLM-backend versions
+    if (
+      eventType === 'assistant' ||
+      eventType === 'content' ||
+      eventType === 'message.content' ||
+      eventType === 'message.delta' ||
+      eventType === 'result'
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Extract displayable text from an opencode event's part / properties.
+   * Returns the text string or undefined if the event has no displayable text.
+   */
+  private extractTextFromEvent(event: any): { text: string; partId?: string } | undefined {
+    const part = event.part ?? event.properties?.part;
+
+    // Standard path: part.type === 'text' with part.text
+    if (part && part.type === 'text' && typeof part.text === 'string') {
+      return { text: part.text, partId: part.id };
+    }
+
+    // Fallback: part has text but part.type is not 'text' (e.g. type is missing or different)
+    if (part && typeof part.text === 'string') {
+      return { text: part.text, partId: part.id };
+    }
+
+    // Some backends put text directly on the event (e.g. event.text or event.content)
+    if (typeof event.text === 'string' && !event.part) {
+      return { text: event.text };
+    }
+    if (typeof event.content === 'string') {
+      return { text: event.content };
+    }
+
+    // result-type events (like claude's {"type":"result","result":"..."})
+    if (typeof event.result === 'string') {
+      return { text: event.result };
+    }
+
+    return undefined;
+  }
+
   private parseOpencodeJsonOutput(stdout: string): { response: string; sessionId?: string } {
     const objects = this.extractJsonObjects(stdout);
     const partOrder: string[] = [];
     const partTexts = new Map<string, string>();
     let sessionId: string | undefined;
+    let syntheticIdCounter = 0;
+    const unrecognizedEventTypes = new Set<string>();
+    // Track tool calls so we can report them when text is empty
+    const toolCalls: { tool: string; status?: string }[] = [];
+    let finishReason: string | undefined;
+    let outputTokens = 0;
 
     for (const raw of objects) {
       try {
@@ -454,16 +516,57 @@ export class ToolCLIClient {
         if (typeof event.sessionID === 'string' && event.sessionID) {
           sessionId = event.sessionID;
         }
-        // Actual format: type="text" with part.text (observed in production)
-        // Also handle "message.part.updated" in case of API version differences
-        const isTextEvent = event.type === 'text' || event.type === 'message.part.updated';
-        if (isTextEvent) {
+        // Also capture session_id (snake_case variant)
+        if (!sessionId && typeof event.session_id === 'string' && event.session_id) {
+          sessionId = event.session_id;
+        }
+
+        const eventType = typeof event.type === 'string' ? event.type : '';
+
+        // Collect tool usage information
+        if (eventType === 'tool_use' || eventType === 'tool_call') {
           const part = event.part ?? event.properties?.part;
-          if (part && part.type === 'text' && typeof part.text === 'string' && part.id) {
-            if (!partTexts.has(part.id)) {
-              partOrder.push(part.id);
+          const toolName = part?.tool || part?.name || event.tool || event.name;
+          const status = part?.state?.status || part?.status;
+          if (toolName) {
+            toolCalls.push({ tool: toolName, status });
+          }
+        }
+
+        // Collect finish reason and token counts for diagnostics
+        if (eventType === 'step_finish') {
+          const part = event.part ?? event.properties?.part;
+          if (part?.reason) {
+            finishReason = part.reason;
+          }
+          const tokens = part?.tokens;
+          if (tokens && typeof tokens.output === 'number') {
+            outputTokens = tokens.output;
+          }
+        }
+
+        if (this.isTextEventType(eventType)) {
+          const extracted = this.extractTextFromEvent(event);
+          // Only store non-empty text — opencode emits placeholder text events
+          // with empty part.text when the model uses tools without prose output.
+          if (extracted && extracted.text.trim()) {
+            const partId = extracted.partId || `__synthetic_${syntheticIdCounter++}`;
+            if (!partTexts.has(partId)) {
+              partOrder.push(partId);
             }
-            partTexts.set(part.id, part.text);
+            partTexts.set(partId, extracted.text);
+          }
+        } else if (eventType) {
+          // Track unrecognized event types; also try extracting text from them
+          // in case they carry response content under an unknown type name.
+          const extracted = this.extractTextFromEvent(event);
+          if (extracted && extracted.text.trim()) {
+            unrecognizedEventTypes.add(eventType);
+            const partId = extracted.partId || `__synthetic_${syntheticIdCounter++}`;
+            if (!partTexts.has(partId)) {
+              partOrder.push(partId);
+            }
+            partTexts.set(partId, extracted.text);
           }
         }
       } catch {
@@ -471,13 +574,77 @@ export class ToolCLIClient {
       }
     }
 
+    if (unrecognizedEventTypes.size > 0) {
+      logger.info('Extracted text from unrecognized opencode event types', {
+        types: Array.from(unrecognizedEventTypes),
+        sessionId
+      });
+    }
+
     if (partOrder.length > 0) {
+      const joined = partOrder.map(id => partTexts.get(id) ?? '').join('');
+      const processed = this.processOutput(joined);
+      if (processed) {
+        return { response: processed, sessionId };
+      }
+      // processOutput stripped all content (e.g. only special tokens or whitespace).
+      // Return the raw joined text so the user receives the actual LLM output.
+      const rawTrimmed = joined
+        .replace(/\x1b\[[0-9;]*m/g, '')
+        .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+        .replace(/<\|[^|]{1,64}\|>/g, '')
+        .trim();
+      if (rawTrimmed) {
+        logger.warn('processOutput stripped text-part content to empty; using raw text', {
+          rawLength: joined.length,
+          preview: joined.slice(0, 200)
+        });
+        return { response: rawTrimmed, sessionId };
+      }
+    }
+
+    // No displayable text found. If the model used tools, build a summary
+    // so the user knows the model did something rather than seeing "empty".
+    if (toolCalls.length > 0) {
+      const uniqueTools = [...new Set(toolCalls.map(tc => tc.tool))];
+      const toolSummary = uniqueTools.map(t => `\`${t}\``).join(', ');
+      logger.info('opencode produced tool calls but no text response', {
+        tools: uniqueTools,
+        outputTokens,
+        finishReason,
+        sessionId
+      });
       return {
-        response: this.processOutput(partOrder.map(id => partTexts.get(id) || '').join('')),
+        response: `🔧 ツールを実行しました（${toolSummary}）が、テキスト応答はありませんでした。続けて質問すると結果を返答します。`,
         sessionId
       };
     }
-    return { response: this.processOutput(stdout), sessionId };
+
+    // No text events and no tool calls — fall back to raw stdout.
+    // Avoid returning the NDJSON itself as the response.
+    const fallback = this.processOutput(stdout);
+    if (fallback && !fallback.trimStart().startsWith('{')) {
+      return { response: fallback, sessionId };
+    }
+
+    // Log the event types we DID see, plus a preview of raw stdout for debugging.
+    const seenTypes = new Set<string>();
+    for (const raw of objects) {
+      try {
+        const ev = JSON.parse(raw);
+        if (typeof ev.type === 'string') seenTypes.add(ev.type);
+      } catch { /* skip */ }
+    }
+    logger.warn('No text events found in opencode output', {
+      stdoutLength: stdout.length,
+      eventCount: objects.length,
+      eventTypes: Array.from(seenTypes),
+      outputTokens,
+      finishReason,
+      stdoutPreview: stdout.slice(0, 500),
+      sessionId
+    });
+    return { response: '', sessionId };
   }
 
   /**
@@ -764,6 +931,23 @@ export class ToolCLIClient {
 
           if (code === 0) {
             const parsed = this.parseToolOutput(tool, stdout);
+            // When stdout parsing yields empty, check stderr for useful info.
+            // Some tools write diagnostic output or even the response to stderr.
+            if (!parsed.response?.trim() && stderr.trim()) {
+              const processedStderr = this.processOutput(stderr);
+              if (processedStderr && !processedStderr.toLowerCase().includes('deprecat')) {
+                logger.warn('Tool stdout empty but stderr has content', {
+                  tool: tool.name,
+                  stderrLength: stderr.length,
+                  stderrPreview: stderr.slice(0, 500)
+                });
+                // Use stderr as fallback response if it looks like actual content
+                // (not just warnings/deprecation notices)
+                if (!parsed.response?.trim()) {
+                  parsed.response = processedStderr;
+                }
+              }
+            }
             resolve(parsed);
           } else {
             if (stderr.includes('command not found') || stderr.includes('not found')) {
@@ -820,22 +1004,24 @@ export class ToolCLIClient {
 
         let hasOutput = false;
 
+        const timeoutId = setTimeout(() => {
+          checkProcess.kill();
+          resolve(false);
+        }, 5000);
+
         checkProcess.stdout?.on('data', () => {
           hasOutput = true;
         });
 
         checkProcess.on('close', (code) => {
+          clearTimeout(timeoutId);
           resolve(code === 0 || hasOutput);
         });
 
         checkProcess.on('error', () => {
+          clearTimeout(timeoutId);
           resolve(false);
         });
-
-        setTimeout(() => {
-          checkProcess.kill();
-          resolve(false);
-        }, 5000);
       });
     } catch {
       return false;

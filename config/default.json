@@ -13,8 +13,14 @@
     "runAsUser": null
   },
   "tools": {
-    "defaultTool": "claude",
+    "defaultTool": "opencode",
     "definitions": {
+      "opencode": {
+        "command": "opencode-cli",
+        "args": ["run", "--format", "json", "{prompt}"],
+        "versionArgs": ["--version"],
+        "description": "OpenCode CLI (Local LLM)"
+      },
       "claude": {
         "command": "claude",
         "args": ["--dangerously-skip-permissions", "--print", "{prompt}"],
