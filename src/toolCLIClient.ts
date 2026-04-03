@@ -187,20 +187,33 @@ export class ToolCLIClient {
     }
 
     if (tool.name === 'codex') {
-      // --oss フラグ: OSSモデルプロバイダー (lmstudio/ollama) を使用
+      // codex のコマンド構造: codex [global-opts] exec [exec-opts] [prompt]
+      // --oss, -m, --local-provider はグローバルオプション (exec の前)
+      // --json, --skip-git-repo-check は exec のサブコマンドオプション (exec の後)
       if (tool.provider && !normalized.includes('--oss')) {
         normalized = ['--oss', '--local-provider', tool.provider, ...normalized];
       }
       if (tool.model && !normalized.includes('--model') && !normalized.includes('-m')) {
         normalized = ['-m', tool.model, ...normalized];
       }
-      // --json: 構造化出力を有効にしてパース可能にする
-      if (!normalized.includes('--json')) {
-        normalized = ['--json', ...normalized];
-      }
-      // --skip-git-repo-check: リポジトリ外でも動作可能にする
-      if (!normalized.includes('--skip-git-repo-check')) {
-        normalized.push('--skip-git-repo-check');
+
+      // exec サブコマンドの後にオプションを挿入する
+      const execIndex = normalized.indexOf('exec');
+      if (execIndex >= 0) {
+        const execOpts: string[] = [];
+        if (!normalized.includes('--json')) {
+          execOpts.push('--json');
+        }
+        if (!normalized.includes('--skip-git-repo-check')) {
+          execOpts.push('--skip-git-repo-check');
+        }
+        if (execOpts.length > 0) {
+          normalized = [
+            ...normalized.slice(0, execIndex + 1),
+            ...execOpts,
+            ...normalized.slice(execIndex + 1)
+          ];
+        }
       }
     }
 
