@@ -919,6 +919,7 @@ export class ToolCLIClient {
     let sessionId: string | undefined;
     const textParts: string[] = [];
     const toolCalls: string[] = [];
+    let lastError: string | undefined;
 
     for (const raw of objects) {
       try {
@@ -933,6 +934,14 @@ export class ToolCLIClient {
         }
 
         const eventType = typeof event.type === 'string' ? event.type : '';
+
+        // Error events (connection failures, turn failures, etc.)
+        if (eventType === 'error' || eventType === 'turn.failed') {
+          const msg = event.message || event.error?.message;
+          if (typeof msg === 'string') {
+            lastError = msg;
+          }
+        }
 
         // Assistant text messages
         if (eventType === 'message' && event.role === 'assistant') {
@@ -977,6 +986,12 @@ export class ToolCLIClient {
         sessionId,
         toolCallsOnly: true
       };
+    }
+
+    // If we have an error from the JSONL stream, report it
+    if (lastError) {
+      logger.warn('codex JSONL stream reported error', { error: lastError, sessionId });
+      return { response: `⚠️ codex エラー: ${lastError}`, sessionId };
     }
 
     // Fallback: try processOutput on raw stdout (non-JSON output)
