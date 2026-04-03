@@ -505,6 +505,8 @@ export class ToolCLIClient {
     processed = processed.replace(/^We haven't completed any work yet\..*$/gm, '');
     // Strip common LLM filler when confused by empty tool results
     processed = processed.replace(/^What would you like help with\??\s*$/gm, '');
+    // Strip codex stderr noise that may leak into response via stderr fallback
+    processed = processed.replace(/^Reading additional input from stdin\.{0,3}\s*$/gm, '');
     // Collapse runs of blank lines left after stripping
     processed = processed.replace(/\n{3,}/g, '\n\n');
     return processed.trim();
@@ -1216,10 +1218,13 @@ export class ToolCLIClient {
       const useDetached = process.env.AGENT_CHATBOT_TOOL_DETACHED === 'true';
       const logToolStream = this.shouldLogToolStream();
 
+      // stdin を 'pipe' にして spawn 直後に end() する。
+      // 'ignore' だと cmd.exe /c 経由で codex が stdin を TTY でないと判定し
+      // "Reading additional input from stdin..." で待機してしまう。
       const spawnOptions: any = {
         cwd: workingDirectory ? path.resolve(workingDirectory) : undefined,
         detached: useDetached,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe'],
         shell: false,
         windowsHide: true,
         env: {
@@ -1233,6 +1238,11 @@ export class ToolCLIClient {
       };
 
       const toolProcess = spawn(command, args, spawnOptions);
+
+      // stdin を即座に閉じて、ツールが追加入力を待たないようにする
+      if (toolProcess.stdin) {
+        toolProcess.stdin.end();
+      }
 
       let stdout = '';
       let stderr = '';
