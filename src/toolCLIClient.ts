@@ -1412,9 +1412,15 @@ export class ToolCLIClient {
       return new Promise((resolve) => {
         const runtime = this.resolveRuntimeCommand(tool, versionArgs);
         const checkProcess = spawn(runtime.command, runtime.args, {
+          stdio: ['pipe', 'pipe', 'pipe'],
           shell: false,
           timeout: 5000
         });
+
+        // stdin を即座に閉じて待機を防止
+        if (checkProcess.stdin) {
+          checkProcess.stdin.end();
+        }
 
         let hasOutput = false;
 

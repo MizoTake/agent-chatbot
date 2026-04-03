@@ -934,7 +934,7 @@ export class BotManager {
 
         const orchaProcess = spawn(orchaCommand, args, {
           cwd: workingDirectory,
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: ['pipe', 'pipe', 'pipe'],
           shell: process.platform === 'win32',
           windowsHide: true,
           env: {
@@ -944,6 +944,11 @@ export class BotManager {
             PYTHONIOENCODING: 'utf-8',
           }
         });
+
+        // stdin を即座に閉じて待機を防止（Windows cmd.exe 経由で必要）
+        if (orchaProcess.stdin) {
+          orchaProcess.stdin.end();
+        }
 
         let timeoutId: NodeJS.Timeout | undefined;
         if (!noTimeout) {
