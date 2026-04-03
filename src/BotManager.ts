@@ -13,6 +13,25 @@ import { ConfigLoader } from './config/configLoader';
 
 const logger = createLogger('BotManager');
 
+/**
+ * LMStudio の /v1/models API を叩いて稼働中のモデル一覧を取得する。
+ * 取得できなかった場合は空配列を返す。
+ */
+async function fetchLMStudioModels(baseUrl: string): Promise<string[]> {
+  try {
+    const url = `${baseUrl.replace(/\/+$/, '')}/v1/models`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) return [];
+    const body = await res.json() as { data?: { id: string }[] };
+    return (body.data || []).map(m => m.id).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 interface ParsedPrompt {
   prompt: string;
   toolOverride?: string;
@@ -70,9 +89,21 @@ export class BotManager {
         : (process.env.OPENCODE_ARGS?.split(' ') || ['run', '--format', 'json', '{prompt}']);
 
       // codex: 環境変数で OSS モデル対応（--provider / --model）
+      // デフォルトは lmstudio。モデル未指定時は LMStudio API から自動検出する。
       const codexCommand = process.env.CODEX_COMMAND || 'codex';
-      const codexProvider = process.env.CODEX_PROVIDER || undefined;
-      const codexModel = process.env.CODEX_MODEL || undefined;
+      const codexProvider = process.env.CODEX_PROVIDER || 'lmstudio';
+      let codexModel = process.env.CODEX_MODEL || undefined;
+
+      if (!codexModel && codexProvider === 'lmstudio') {
+        const lmstudioUrl = process.env.LMSTUDIO_URL || 'http://localhost:1234';
+        const models = await fetchLMStudioModels(lmstudioUrl);
+        if (models.length > 0) {
+          codexModel = models[0];
+          logger.info('Auto-detected LMStudio model for codex', { model: codexModel, available: models });
+        } else {
+          logger.warn('LMStudio is not running or has no models loaded — codex will use provider default');
+        }
+      }
 
       // takt: 環境変数でコマンド名とオプションを切り替え可能
       const taktCommand = process.env.TAKT_COMMAND || 'takt';

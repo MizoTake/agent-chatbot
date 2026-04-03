@@ -33,7 +33,7 @@
         "args": ["exec", "--sandbox", "danger-full-access", "{prompt}"],
         "versionArgs": ["--version"],
         "description": "OpenAI Codex CLI",
-        "provider": null,
+        "provider": "lmstudio",
         "model": null
       },
       "vibe-local": {
