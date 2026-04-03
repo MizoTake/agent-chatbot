@@ -408,9 +408,12 @@ export class ToolCLIClient {
         .split(';')
         .map(ext => ext.trim())
         .filter(Boolean);
+      // Windows では PATHEXT 付きファイル (.cmd, .exe 等) を優先する。
+      // 拡張子なしファイルは bash 用シェルスクリプトの場合があり、
+      // spawn(shell:false) で実行できない。
       const candidates = hasExtension
         ? [command]
-        : [command, ...pathExt.map(ext => `${command}${ext.toLowerCase()}`), ...pathExt.map(ext => `${command}${ext.toUpperCase()}`)];
+        : [...pathExt.map(ext => `${command}${ext.toLowerCase()}`), ...pathExt.map(ext => `${command}${ext.toUpperCase()}`), command];
 
       for (const dir of pathEntries) {
         for (const candidate of candidates) {
