@@ -42,9 +42,9 @@ export interface ToolConfig {
   versionArgs?: string[];
   description?: string;
   supportsSkipPermissions?: boolean;
-  /** LLM provider name (e.g. "ollama", "lmstudio", "openai-compatible"). Used by codex --provider. */
+  /** OSS プロバイダー名 (e.g. "lmstudio", "ollama")。設定時に codex --oss フラグを付与。 */
   provider?: string;
-  /** Model name to use (e.g. "qwen3:8b"). Used by codex --model. */
+  /** モデル名 (e.g. "qwen/qwen3.5-9b")。codex -m に渡される。 */
   model?: string;
 }
 
@@ -187,11 +187,12 @@ export class ToolCLIClient {
     }
 
     if (tool.name === 'codex') {
-      if (tool.provider && !normalized.includes('--provider')) {
-        normalized = ['--provider', tool.provider, ...normalized];
+      // --oss フラグ: OSSモデルプロバイダー (lmstudio/ollama) を使用
+      if (tool.provider && !normalized.includes('--oss')) {
+        normalized = ['--oss', ...normalized];
       }
       if (tool.model && !normalized.includes('--model') && !normalized.includes('-m')) {
-        normalized = ['--model', tool.model, ...normalized];
+        normalized = ['-m', tool.model, ...normalized];
       }
     }
 
@@ -361,6 +362,16 @@ export class ToolCLIClient {
           args: ['-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...normalizedArgs]
         };
       }
+    }
+
+    // Windows: .cmd/.bat ファイルは spawn(shell:false) で直接実行できないため
+    // cmd.exe /c 経由で起動する
+    const ext = path.extname(resolvedCommand).toLowerCase();
+    if (ext === '.cmd' || ext === '.bat') {
+      return {
+        command: process.env.COMSPEC || 'cmd.exe',
+        args: ['/c', resolvedCommand, ...args]
+      };
     }
 
     return { command: resolvedCommand, args };

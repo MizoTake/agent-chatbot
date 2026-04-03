@@ -149,15 +149,15 @@ test('ToolCLIClient: ensure standard options for claude and codex', () => {
   }
 });
 
-test('ToolCLIClient: codex with provider and model options for OSS models', () => {
+test('ToolCLIClient: codex with --oss and -m for OSS models', () => {
   const client = new ToolCLIClient(
     {
       codex: {
         command: 'codex',
         args: ['exec', '--sandbox', 'danger-full-access', '{prompt}'],
         versionArgs: ['--version'],
-        provider: 'ollama',
-        model: 'qwen3:8b'
+        provider: 'lmstudio',
+        model: 'qwen/qwen3.5-9b'
       }
     },
     'codex',
@@ -169,20 +169,19 @@ test('ToolCLIClient: codex with provider and model options for OSS models', () =
     const tools = client.listTools();
     const codexTool = tools.find((t: any) => t.name === 'codex');
     assert.ok(codexTool);
-    assert.equal(codexTool.provider, 'ollama');
-    assert.equal(codexTool.model, 'qwen3:8b');
+    assert.equal(codexTool.provider, 'lmstudio');
+    assert.equal(codexTool.model, 'qwen/qwen3.5-9b');
 
     const result = ensure(codexTool, ['exec', '--sandbox', 'danger-full-access', 'hello']);
-    assert.ok(result.includes('--provider'), 'should include --provider');
-    assert.ok(result.includes('ollama'), 'should include provider value');
-    assert.ok(result.includes('--model'), 'should include --model');
-    assert.ok(result.includes('qwen3:8b'), 'should include model value');
+    assert.ok(result.includes('--oss'), 'should include --oss');
+    assert.ok(result.includes('-m'), 'should include -m');
+    assert.ok(result.includes('qwen/qwen3.5-9b'), 'should include model value');
   } finally {
     client.cleanup();
   }
 });
 
-test('ToolCLIClient: codex without provider/model does not add extra flags', () => {
+test('ToolCLIClient: codex without provider/model does not add --oss or -m', () => {
   const client = new ToolCLIClient(
     {
       codex: {
@@ -201,22 +200,22 @@ test('ToolCLIClient: codex without provider/model does not add extra flags', () 
     assert.ok(codexTool);
 
     const result = ensure(codexTool, ['exec', '--sandbox', 'danger-full-access', 'hello']);
-    assert.ok(!result.includes('--provider'), 'should not include --provider');
-    assert.ok(!result.includes('--model'), 'should not include --model');
+    assert.ok(!result.includes('--oss'), 'should not include --oss');
+    assert.ok(!result.includes('-m'), 'should not include -m');
   } finally {
     client.cleanup();
   }
 });
 
-test('ToolCLIClient: codex provider/model not duplicated when already present', () => {
+test('ToolCLIClient: codex --oss/-m not duplicated when already present', () => {
   const client = new ToolCLIClient(
     {
       codex: {
         command: 'codex',
         args: ['exec', '--sandbox', 'danger-full-access', '{prompt}'],
         versionArgs: ['--version'],
-        provider: 'ollama',
-        model: 'qwen3:8b'
+        provider: 'lmstudio',
+        model: 'qwen/qwen3.5-9b'
       }
     },
     'codex',
@@ -228,11 +227,11 @@ test('ToolCLIClient: codex provider/model not duplicated when already present', 
     const codexTool = client.listTools().find((t: any) => t.name === 'codex');
     assert.ok(codexTool);
 
-    const result = ensure(codexTool, ['--provider', 'lmstudio', '--model', 'llama3', 'exec', '--sandbox', 'danger-full-access', 'hello']);
-    const providerCount = result.filter((a: string) => a === '--provider').length;
-    const modelCount = result.filter((a: string) => a === '--model').length;
-    assert.equal(providerCount, 1, 'should not duplicate --provider');
-    assert.equal(modelCount, 1, 'should not duplicate --model');
+    const result = ensure(codexTool, ['--oss', '-m', 'llama3', 'exec', '--sandbox', 'danger-full-access', 'hello']);
+    const ossCount = result.filter((a: string) => a === '--oss').length;
+    const modelCount = result.filter((a: string) => a === '-m').length;
+    assert.equal(ossCount, 1, 'should not duplicate --oss');
+    assert.equal(modelCount, 1, 'should not duplicate -m');
   } finally {
     client.cleanup();
   }
