@@ -140,10 +140,10 @@ test('ToolCLIClient: ensure standard options for claude and codex', () => {
       ensure(claudeTool, ['--print', 'hello']),
       ['--dangerously-skip-permissions', '--print', 'hello']
     );
-    assert.deepEqual(
-      ensure(codexTool, ['exec', 'hello']),
-      ['--sandbox', 'danger-full-access', 'exec', 'hello']
-    );
+    const codexResult = ensure(codexTool, ['exec', 'hello']);
+    assert.ok(codexResult.includes('--sandbox'), 'codex should include --sandbox');
+    assert.ok(codexResult.includes('--json'), 'codex should include --json');
+    assert.ok(codexResult.includes('--skip-git-repo-check'), 'codex should include --skip-git-repo-check');
   } finally {
     client.cleanup();
   }
@@ -232,6 +232,102 @@ test('ToolCLIClient: codex --oss/-m not duplicated when already present', () => 
     const modelCount = result.filter((a: string) => a === '-m').length;
     assert.equal(ossCount, 1, 'should not duplicate --oss');
     assert.equal(modelCount, 1, 'should not duplicate -m');
+  } finally {
+    client.cleanup();
+  }
+});
+
+test('parseToolOutput: codex JSONL からアシスタントメッセージを抽出する', () => {
+  const client = new ToolCLIClient({
+    codex: { command: 'codex', args: ['exec', '{prompt}'], versionArgs: ['--version'] }
+  }, 'codex', 5000);
+
+  try {
+    const parse = (client as any).parseToolOutput.bind(client);
+    const tool = client.listTools().find((t: any) => t.name === 'codex');
+    assert.ok(tool);
+
+    const jsonl = [
+      '{"type":"thread.started","thread_id":"tid_123"}',
+      '{"type":"turn.started"}',
+      '{"type":"message","role":"assistant","content":"1+1は2です。"}',
+      '{"type":"turn.completed"}'
+    ].join('\n');
+
+    const result = parse(tool, jsonl);
+    assert.equal(result.response, '1+1は2です。');
+    assert.equal(result.sessionId, 'tid_123');
+    assert.equal(result.toolCallsOnly, undefined);
+  } finally {
+    client.cleanup();
+  }
+});
+
+test('parseToolOutput: codex JSONL でツール実行のみの場合は toolCallsOnly を返す', () => {
+  const client = new ToolCLIClient({
+    codex: { command: 'codex', args: ['exec', '{prompt}'], versionArgs: ['--version'] }
+  }, 'codex', 5000);
+
+  try {
+    const parse = (client as any).parseToolOutput.bind(client);
+    const tool = client.listTools().find((t: any) => t.name === 'codex');
+
+    const jsonl = [
+      '{"type":"thread.started","thread_id":"tid_456"}',
+      '{"type":"exec","tool":"powershell.exe","args":["-Command","Get-Content Cargo.toml"]}',
+      '{"type":"turn.completed"}'
+    ].join('\n');
+
+    const result = parse(tool, jsonl);
+    assert.equal(result.toolCallsOnly, true);
+    assert.ok(result.response.includes('powershell.exe'));
+    assert.equal(result.sessionId, 'tid_456');
+  } finally {
+    client.cleanup();
+  }
+});
+
+test('parseToolOutput: codex 非JSON出力はフォールバックで処理する', () => {
+  const client = new ToolCLIClient({
+    codex: { command: 'codex', args: ['exec', '{prompt}'], versionArgs: ['--version'] }
+  }, 'codex', 5000);
+
+  try {
+    const parse = (client as any).parseToolOutput.bind(client);
+    const tool = client.listTools().find((t: any) => t.name === 'codex');
+
+    const result = parse(tool, 'Plain text response from codex');
+    assert.equal(result.response, 'Plain text response from codex');
+  } finally {
+    client.cleanup();
+  }
+});
+
+test('ToolCLIClient: codex に --json, --local-provider, --skip-git-repo-check が自動追加される', () => {
+  const client = new ToolCLIClient(
+    {
+      codex: {
+        command: 'codex',
+        args: ['exec', '--sandbox', 'danger-full-access', '{prompt}'],
+        versionArgs: ['--version'],
+        provider: 'lmstudio',
+        model: 'qwen/qwen3.5-9b'
+      }
+    },
+    'codex',
+    5000
+  );
+
+  try {
+    const ensure = (client as any).ensureStandardExecutionOptions.bind(client);
+    const codexTool = client.listTools().find((t: any) => t.name === 'codex');
+    assert.ok(codexTool);
+
+    const result = ensure(codexTool, ['exec', '--sandbox', 'danger-full-access', 'hello']);
+    assert.ok(result.includes('--json'), 'should include --json');
+    assert.ok(result.includes('--local-provider'), 'should include --local-provider');
+    assert.ok(result.includes('lmstudio'), 'should include lmstudio');
+    assert.ok(result.includes('--skip-git-repo-check'), 'should include --skip-git-repo-check');
   } finally {
     client.cleanup();
   }

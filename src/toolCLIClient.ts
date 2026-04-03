@@ -189,10 +189,18 @@ export class ToolCLIClient {
     if (tool.name === 'codex') {
       // --oss フラグ: OSSモデルプロバイダー (lmstudio/ollama) を使用
       if (tool.provider && !normalized.includes('--oss')) {
-        normalized = ['--oss', ...normalized];
+        normalized = ['--oss', '--local-provider', tool.provider, ...normalized];
       }
       if (tool.model && !normalized.includes('--model') && !normalized.includes('-m')) {
         normalized = ['-m', tool.model, ...normalized];
+      }
+      // --json: 構造化出力を有効にしてパース可能にする
+      if (!normalized.includes('--json')) {
+        normalized = ['--json', ...normalized];
+      }
+      // --skip-git-repo-check: リポジトリ外でも動作可能にする
+      if (!normalized.includes('--skip-git-repo-check')) {
+        normalized.push('--skip-git-repo-check');
       }
     }
 
@@ -900,12 +908,102 @@ export class ToolCLIClient {
     return undefined;
   }
 
+  /**
+   * Parse codex JSONL output (--json).
+   * Events include: thread.started, turn.started, message (assistant text),
+   * exec (tool calls), turn.completed, etc.
+   * We extract assistant message content and thread_id as session ID.
+   */
+  private parseCodexJsonOutput(stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean } {
+    const objects = this.extractJsonObjects(stdout);
+    let sessionId: string | undefined;
+    const textParts: string[] = [];
+    const toolCalls: string[] = [];
+
+    for (const raw of objects) {
+      try {
+        const event = JSON.parse(raw);
+
+        // Capture thread ID as session
+        if (typeof event.thread_id === 'string' && event.thread_id) {
+          sessionId = event.thread_id;
+        }
+        if (typeof event.session_id === 'string' && event.session_id) {
+          sessionId = event.session_id;
+        }
+
+        const eventType = typeof event.type === 'string' ? event.type : '';
+
+        // Assistant text messages
+        if (eventType === 'message' && event.role === 'assistant') {
+          if (typeof event.content === 'string' && event.content.trim()) {
+            textParts.push(event.content);
+          }
+          if (Array.isArray(event.content)) {
+            for (const item of event.content) {
+              if (item && typeof item === 'object' && typeof item.text === 'string') {
+                textParts.push(item.text);
+              }
+            }
+          }
+        }
+
+        // Fallback: any event with a content/text field from assistant
+        if (!textParts.length && typeof event.content === 'string' && event.content.trim() && event.role !== 'user') {
+          textParts.push(event.content);
+        }
+
+        // Tool/exec events
+        if (eventType === 'exec' || eventType === 'tool_use' || eventType === 'tool_call') {
+          const toolName = event.tool || event.name || 'unknown';
+          toolCalls.push(toolName);
+        }
+      } catch {
+        // Skip non-JSON
+      }
+    }
+
+    const joined = textParts.join('\n');
+    const processed = this.processOutput(joined);
+    if (processed) {
+      return { response: processed, sessionId };
+    }
+
+    if (toolCalls.length > 0) {
+      const uniqueTools = [...new Set(toolCalls)];
+      logger.info('codex produced tool calls but no text response', { tools: uniqueTools, sessionId });
+      return {
+        response: `🔧 ツールを実行しました（${uniqueTools.map(t => `\`${t}\``).join(', ')}）が、テキスト応答はありませんでした。`,
+        sessionId,
+        toolCallsOnly: true
+      };
+    }
+
+    // Fallback: try processOutput on raw stdout (non-JSON output)
+    const fallback = this.processOutput(stdout);
+    if (fallback && !fallback.trimStart().startsWith('{')) {
+      return { response: fallback, sessionId };
+    }
+
+    logger.warn('No text found in codex output', {
+      stdoutLength: stdout.length,
+      eventCount: objects.length,
+      stdoutPreview: stdout.slice(0, 500),
+      sessionId
+    });
+    return { response: '', sessionId };
+  }
+
   private parseToolOutput(tool: ToolInfo, stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean } {
     if (tool.name === 'claude') {
       const parsedClaude = this.parseClaudeOutput(stdout);
       if (parsedClaude) {
         return parsedClaude;
       }
+    }
+
+    if (tool.name === 'codex') {
+      return this.parseCodexJsonOutput(stdout);
     }
 
     if (tool.name === 'opencode') {
