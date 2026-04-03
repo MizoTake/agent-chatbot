@@ -1366,13 +1366,44 @@ export class ToolCLIClient {
           } else {
             if (stderr.includes('command not found') || stderr.includes('not found')) {
               reject(new Error(`${tool.name} CLIが見つかりません。インストールとPATH設定を確認してください。`));
-            } else {
-              const errorMessage = this.formatError(stderr, code);
-              const error = new Error(errorMessage);
-              (error as any).code = code;
-              (error as any).stderr = stderr;
-              reject(error);
+              return;
             }
+
+            // exit code != 0 でも stdout に有用な情報がある場合がある。
+            // codex は JSONL エラーイベントを stdout に書いて exit 1 する。
+            const parsed = this.parseToolOutput(tool, stdout);
+            if (parsed.response?.trim()) {
+              // 一時エラー (SSE timeout 等) ならリトライ対象にする
+              if (this.isTransientToolError(parsed.response)) {
+                const err = new Error(parsed.response);
+                (err as any).transient = true;
+                logger.warn('Tool exited with error but output indicates transient error, will retry', {
+                  tool: tool.name,
+                  code,
+                  responsePreview: parsed.response.slice(0, 200)
+                });
+                reject(err);
+                return;
+              }
+              // stdout に応答があればそれを返す（エラーメッセージ含む）
+              resolve(parsed);
+              return;
+            }
+
+            // stderr にも stdout にも有用な情報がない場合
+            const stderrMessage = this.formatError(stderr, code);
+            // stderr のエラーメッセージが一時エラーならリトライ
+            if (this.isTransientToolError(stderrMessage)) {
+              const err = new Error(stderrMessage);
+              (err as any).transient = true;
+              reject(err);
+              return;
+            }
+
+            const error = new Error(stderrMessage);
+            (error as any).code = code;
+            (error as any).stderr = stderr;
+            reject(error);
           }
         } else if (onBackgroundComplete) {
           if (code === 0) {
