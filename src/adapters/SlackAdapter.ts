@@ -75,6 +75,8 @@ export class SlackAdapter implements BotAdapter {
     registerSlashCommand('/claude-skip-permissions', 'claude-skip-permissions');
     registerSlashCommand('/agent-tool', 'agent-tool');
     registerSlashCommand('/claude-tool', 'claude-tool');
+    registerSlashCommand('/takt-run', 'takt-run', '🎵 TAKT executing...');
+    registerSlashCommand('/orcha-run', 'orcha-run', '🎼 orcha executing...');
 
     // Handle app mentions
     this.app.event('app_mention', async ({ event, client }) => {

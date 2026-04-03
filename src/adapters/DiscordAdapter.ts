@@ -94,8 +94,55 @@ export class DiscordAdapter implements BotAdapter {
         const isGuildChannel = message.channel.type === 0;
 
         if (isDirectMessage || isMention || isGuildChannel) {
+          const cleanedText = this.cleanMessageContent(message.content);
+
+          // Route /command messages to registered command handlers
+          const slashMatch = cleanedText.match(/^\/([a-zA-Z][\w-]*)\s*([\s\S]*)$/);
+          if (slashMatch) {
+            const commandName = slashMatch[1];
+            const commandHandler = this.commandHandlers.get(commandName);
+            if (commandHandler) {
+              const cmdMessage: BotMessage = {
+                text: slashMatch[2].trim() || '',
+                channelId: message.channelId,
+                userId: message.author.id,
+                isDirectMessage,
+                isMention,
+                isCommand: true,
+                commandName,
+              };
+
+              if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('messageCreate:command')) {
+                return;
+              }
+
+              const sendTyping = () => {
+                if ('sendTyping' in message.channel && typeof message.channel.sendTyping === 'function') {
+                  (message.channel.sendTyping() as Promise<void>).catch(() => {});
+                }
+              };
+              const typingInterval = setInterval(sendTyping, 8000);
+              sendTyping();
+
+              let response: BotResponse | null;
+              try {
+                response = await commandHandler(cmdMessage);
+              } finally {
+                clearInterval(typingInterval);
+              }
+
+              if (response) {
+                if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('messageCreate:command:reply')) {
+                  return;
+                }
+                await this.sendSplitReply(message, response);
+              }
+              return;
+            }
+          }
+
           const botMessage: BotMessage = {
-            text: this.cleanMessageContent(message.content),
+            text: cleanedText,
             channelId: message.channelId,
             userId: message.author.id,
             isDirectMessage,
@@ -435,6 +482,26 @@ export class DiscordAdapter implements BotAdapter {
           type: 3,
           description: 'list / status / use <name> / clear / reset',
           required: false,
+        }],
+      },
+      {
+        name: 'takt-run',
+        description: 'Run TAKT pipeline task (non-interactive)',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: 'Task description (optionally with --auto-pr, --provider, --piece flags)',
+          required: true,
+        }],
+      },
+      {
+        name: 'orcha-run',
+        description: 'Run orcha cycle on linked repository',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: 'Task description or "status" (optionally with --profile, --no-timeout flags)',
+          required: true,
         }],
       },
     ];

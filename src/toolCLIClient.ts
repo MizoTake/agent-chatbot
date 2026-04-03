@@ -11,6 +11,8 @@ export interface ToolResponse {
   error?: string;
   timedOut?: boolean;
   sessionId?: string;
+  /** True when the LLM only performed tool calls without producing text output. */
+  toolCallsOnly?: boolean;
 }
 
 interface BackgroundCallback {
@@ -30,6 +32,8 @@ export interface ToolOptions {
   toolName?: string;
   resumeConversation?: boolean;
   sessionId?: string;
+  /** Extra CLI arguments inserted before the tool's configured args. */
+  extraArgs?: string[];
 }
 
 export interface ToolConfig {
@@ -38,6 +42,10 @@ export interface ToolConfig {
   versionArgs?: string[];
   description?: string;
   supportsSkipPermissions?: boolean;
+  /** LLM provider name (e.g. "ollama", "lmstudio", "openai-compatible"). Used by codex --provider. */
+  provider?: string;
+  /** Model name to use (e.g. "qwen3:8b"). Used by codex --model. */
+  model?: string;
 }
 
 export interface ToolInfo {
@@ -47,6 +55,8 @@ export interface ToolInfo {
   versionArgs: string[];
   description?: string;
   supportsSkipPermissions: boolean;
+  provider?: string;
+  model?: string;
 }
 
 interface RuntimeCommand {
@@ -108,7 +118,9 @@ export class ToolCLIClient {
         args,
         versionArgs,
         description: config.description,
-        supportsSkipPermissions: config.supportsSkipPermissions === true
+        supportsSkipPermissions: config.supportsSkipPermissions === true,
+        provider: config.provider,
+        model: config.model
       });
     });
 
@@ -151,6 +163,18 @@ export class ToolCLIClient {
     return ['-y', ...args];
   }
 
+  private ensureTaktPipelineMode(tool: ToolInfo, args: string[]): string[] {
+    if (tool.name !== 'takt') {
+      return args;
+    }
+
+    if (args.includes('--pipeline')) {
+      return args;
+    }
+
+    return ['--pipeline', ...args];
+  }
+
   private ensureStandardExecutionOptions(tool: ToolInfo, args: string[]): string[] {
     let normalized = [...args];
 
@@ -162,7 +186,17 @@ export class ToolCLIClient {
       normalized = ['--sandbox', 'danger-full-access', ...normalized];
     }
 
-    return this.ensureVibeLocalAutoApprove(tool, normalized);
+    if (tool.name === 'codex') {
+      if (tool.provider && !normalized.includes('--provider')) {
+        normalized = ['--provider', tool.provider, ...normalized];
+      }
+      if (tool.model && !normalized.includes('--model') && !normalized.includes('-m')) {
+        normalized = ['--model', tool.model, ...normalized];
+      }
+    }
+
+    normalized = this.ensureVibeLocalAutoApprove(tool, normalized);
+    return this.ensureTaktPipelineMode(tool, normalized);
   }
 
   private stripCodexSandboxOption(args: string[]): { args: string[]; sandboxMode?: string } {
@@ -254,6 +288,13 @@ export class ToolCLIClient {
       }
       // No stored session yet — start fresh; session ID will be captured from the response
       return args;
+    }
+
+    if (tool.name === 'takt') {
+      if (args.includes('--continue') || args.includes('-c')) {
+        return args;
+      }
+      return ['--continue', ...args];
     }
 
     return args;
@@ -399,6 +440,15 @@ export class ToolCLIClient {
     // Strip leaked tool-call lines such as "to=functions.read ..." that some
     // models emit before or after the actual answer.
     processed = processed.replace(/^to=\S+.*$/gm, '');
+    // Strip leaked tool-call XML blocks: <tool_call>...</tool_call> or <function=...>...</function>
+    // Local models sometimes emit these as plain text instead of proper tool calls.
+    processed = processed.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '');
+    processed = processed.replace(/<function=[^>]*>[\s\S]*?<\/function>/g, '');
+    // Strip leaked system prompt instructions that some models echo back
+    processed = processed.replace(/^Continue if you have next steps.*$/gm, '');
+    processed = processed.replace(/^We haven't completed any work yet\..*$/gm, '');
+    // Strip common LLM filler when confused by empty tool results
+    processed = processed.replace(/^What would you like help with\??\s*$/gm, '');
     // Collapse runs of blank lines left after stripping
     processed = processed.replace(/\n{3,}/g, '\n\n');
     return processed.trim();
@@ -489,16 +539,82 @@ export class ToolCLIClient {
     if (typeof event.content === 'string') {
       return { text: event.content };
     }
+    if (Array.isArray(event.content)) {
+      const joinedContent = event.content
+        .map((item: any) => {
+          if (!item || typeof item !== 'object') {
+            return '';
+          }
+          if (typeof item.text === 'string') {
+            return item.text;
+          }
+          if (item.type === 'output_text' && typeof item.content === 'string') {
+            return item.content;
+          }
+          return '';
+        })
+        .join('');
+      if (joinedContent) {
+        return { text: joinedContent };
+      }
+    }
 
     // result-type events (like claude's {"type":"result","result":"..."})
     if (typeof event.result === 'string') {
       return { text: event.result };
     }
+    if (typeof event.delta === 'string') {
+      return { text: event.delta };
+    }
+    if (event.delta && typeof event.delta.text === 'string') {
+      return { text: event.delta.text };
+    }
+    if (typeof event.output_text === 'string') {
+      return { text: event.output_text };
+    }
+    if (event.response && typeof event.response.output_text === 'string') {
+      return { text: event.response.output_text };
+    }
+    if (Array.isArray(event.output)) {
+      const joinedOutput = event.output
+        .map((item: any) => {
+          if (!item || typeof item !== 'object') {
+            return '';
+          }
+          if (typeof item.text === 'string') {
+            return item.text;
+          }
+          if (Array.isArray(item.content)) {
+            return item.content
+              .map((contentItem: any) => {
+                if (!contentItem || typeof contentItem !== 'object') {
+                  return '';
+                }
+                if (typeof contentItem.text === 'string') {
+                  return contentItem.text;
+                }
+                if (contentItem.type === 'output_text' && typeof contentItem.text === 'string') {
+                  return contentItem.text;
+                }
+                if (contentItem.type === 'output_text' && typeof contentItem.content === 'string') {
+                  return contentItem.content;
+                }
+                return '';
+              })
+              .join('');
+          }
+          return '';
+        })
+        .join('');
+      if (joinedOutput) {
+        return { text: joinedOutput };
+      }
+    }
 
     return undefined;
   }
 
-  private parseOpencodeJsonOutput(stdout: string): { response: string; sessionId?: string } {
+  private parseOpencodeJsonOutput(stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean } {
     const objects = this.extractJsonObjects(stdout);
     const partOrder: string[] = [];
     const partTexts = new Map<string, string>();
@@ -615,8 +731,9 @@ export class ToolCLIClient {
         sessionId
       });
       return {
-        response: `🔧 ツールを実行しました（${toolSummary}）が、テキスト応答はありませんでした。続けて質問すると結果を返答します。`,
-        sessionId
+        response: `🔧 ツールを実行しました（${toolSummary}）が、テキスト応答はありませんでした。`,
+        sessionId,
+        toolCallsOnly: true
       };
     }
 
@@ -654,18 +771,126 @@ export class ToolCLIClient {
    * For opencode (--format json) the output is NDJSON with sessionID on each event.
    * Returns the display text and optional session_id.
    */
-  private parseToolOutput(tool: ToolInfo, stdout: string): { response: string; sessionId?: string } {
-    if (tool.name === 'claude') {
-      try {
-        const parsed = JSON.parse(stdout.trim());
-        if (parsed && typeof parsed.result === 'string') {
-          return {
-            response: this.processOutput(parsed.result),
-            sessionId: typeof parsed.session_id === 'string' ? parsed.session_id : undefined
-          };
+  private parseClaudeOutput(stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean } | undefined {
+    const trimmed = stdout.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    const buildClaudeResponse = (objects: any[]): { response: string; sessionId?: string; toolCallsOnly?: boolean } | undefined => {
+      let sessionId: string | undefined;
+      const textParts: string[] = [];
+      const toolNames: string[] = [];
+
+      const visitContentArray = (content: any[]): void => {
+        for (const item of content) {
+          if (!item || typeof item !== 'object') {
+            continue;
+          }
+          if (typeof item.text === 'string') {
+            textParts.push(item.text);
+          }
+          if (item.type === 'tool_use') {
+            const toolName = item.name || item.tool || item.tool_name;
+            if (typeof toolName === 'string' && toolName) {
+              toolNames.push(toolName);
+            }
+          }
         }
-      } catch {
-        // Not JSON — fall through to plain-text handling
+      };
+
+      for (const parsed of objects) {
+        if (!parsed || typeof parsed !== 'object') {
+          continue;
+        }
+        let capturedStructuredText = false;
+
+        if (!sessionId) {
+          sessionId =
+            typeof parsed.session_id === 'string' ? parsed.session_id
+              : typeof parsed.sessionId === 'string' ? parsed.sessionId
+                : undefined;
+        }
+
+        if (typeof parsed.result === 'string') {
+          textParts.push(parsed.result);
+          capturedStructuredText = true;
+        }
+        if (Array.isArray(parsed.content)) {
+          visitContentArray(parsed.content);
+          capturedStructuredText = true;
+        }
+        if (parsed.message && Array.isArray(parsed.message.content)) {
+          visitContentArray(parsed.message.content);
+          capturedStructuredText = true;
+        }
+        if (Array.isArray(parsed.messages)) {
+          for (const message of parsed.messages) {
+            if (message && Array.isArray(message.content)) {
+              visitContentArray(message.content);
+            }
+          }
+          capturedStructuredText = true;
+        }
+        if (!capturedStructuredText) {
+          const extracted = this.extractTextFromEvent(parsed);
+          if (extracted?.text) {
+            textParts.push(extracted.text);
+          }
+        }
+      }
+
+      const processedText = this.processOutput(textParts.join(''));
+      if (processedText) {
+        return {
+          response: processedText,
+          sessionId
+        };
+      }
+
+      if (toolNames.length > 0) {
+        const uniqueTools = [...new Set(toolNames)];
+        logger.info('claude produced tool calls but no text response', {
+          tools: uniqueTools,
+          sessionId
+        });
+        return {
+          response: `🔧 ツールを実行しました（${uniqueTools.map(t => `\`${t}\``).join(', ')}）が、テキスト応答はありませんでした。`,
+          sessionId,
+          toolCallsOnly: true
+        };
+      }
+
+      return sessionId || textParts.length > 0 ? { response: processedText, sessionId } : undefined;
+    };
+
+    try {
+      const parsed = JSON.parse(trimmed);
+      return buildClaudeResponse([parsed]);
+    } catch {
+      const objects = this.extractJsonObjects(trimmed);
+      if (objects.length > 0) {
+        const parsedObjects = objects
+          .map(raw => {
+            try {
+              return JSON.parse(raw);
+            } catch {
+              return undefined;
+            }
+          })
+          .filter(Boolean);
+        return buildClaudeResponse(parsedObjects);
+      }
+    }
+
+    return undefined;
+  }
+
+  private parseToolOutput(tool: ToolInfo, stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean } {
+    if (tool.name === 'claude') {
+      const parsedClaude = this.parseClaudeOutput(stdout);
+      if (parsedClaude) {
+        return parsedClaude;
       }
     }
 
@@ -783,7 +1008,8 @@ export class ToolCLIClient {
       skipPermissions = false,
       toolName,
       resumeConversation = false,
-      sessionId
+      sessionId,
+      extraArgs
     } = options;
 
     const tool = this.resolveTool(toolName);
@@ -800,6 +1026,9 @@ export class ToolCLIClient {
 
       let command = tool.command;
       let args = this.ensureStandardExecutionOptions(tool, this.buildArgs(tool, prompt));
+      if (extraArgs && extraArgs.length > 0) {
+        args = [...extraArgs, ...args];
+      }
       args = this.applyResumeOption(tool, args, resumeConversation, sessionId);
 
       const forceAllowRoot = process.env.CLAUDE_FORCE_ALLOW_ROOT === 'true';

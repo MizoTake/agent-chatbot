@@ -3,12 +3,7 @@ version: 1
 agents:
   local_llm:
     mode: "cli"
-    # model: "lmstudio/qwen/qwen3.5-9b"
-    # model: "lmstudio/qwen3.5-27b"
-    # model: "lmstudio/qwen/qwen3.5-9b"
-    # model: "lmstudio/qwen3.5-122b-a10b"
-    # model: "lmstudio/qwen/qwen3-coder-30b"
-    model: "lmstudio/unsloth/gpt-oss-120b"
+    model: "lmstudio/text-embedding-nomic-embed-text-v1.5"
     cli:
       command: "bash"
       args: ["scripts/opencode-monitor.sh", "run", "--thinking", "--format=json"]
@@ -17,9 +12,7 @@ agents:
 
   local_llm_reviewer:
     mode: "cli"
-    # model: "lmstudio/qwen/qwen3.5-9b"
-    # model: "lmstudio/qwen/qwen3-coder-30b"
-    model: "lmstudio/unsloth/gpt-oss-120b"
+    model: "lmstudio/text-embedding-nomic-embed-text-v1.5"
     cli:
       command: "bash"
       args: ["scripts/opencode-monitor.sh", "run", "--thinking", "--format=json"]
@@ -62,16 +55,12 @@ execution:
       - "local_only"
       - "local_only"
       - "local_only"
-      - "opencode_impl_codex_review"
-      - "local_only"
-      - "opencode_impl_claude_review"
-      - "local_only"
-      - "local_only"
-      - "codex_impl_opencode_review"
       - "local_only"
       - "local_only"
       - "local_only"
-      - "claude_impl_opencode_review"
+      - "local_only"
+      - "local_only"
+      - "local_only"
       - "local_only"
       - "local_only"
     every_n_cycles: []

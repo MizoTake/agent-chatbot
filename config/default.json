@@ -32,13 +32,21 @@
         "command": "codex",
         "args": ["exec", "--sandbox", "danger-full-access", "{prompt}"],
         "versionArgs": ["--version"],
-        "description": "OpenAI Codex CLI"
+        "description": "OpenAI Codex CLI",
+        "provider": null,
+        "model": null
       },
       "vibe-local": {
         "command": "vibe-local",
         "args": ["-y", "--prompt", "{prompt}"],
         "versionArgs": ["--version"],
         "description": "vibe-local CLI (Ollama)"
+      },
+      "takt": {
+        "command": "takt",
+        "args": ["--pipeline", "--task", "{prompt}"],
+        "versionArgs": ["--version"],
+        "description": "TAKT Agent Orchestrator"
       }
     }
   },
