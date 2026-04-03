@@ -329,6 +329,26 @@ export class ToolCLIClient {
     );
   }
 
+  /**
+   * Detect transient errors in tool output that should trigger a retry,
+   * even though the process exited with code 0.
+   */
+  private isTransientToolError(response: string): boolean {
+    if (!response) return false;
+    const lower = response.toLowerCase();
+    return (
+      // codex: LMStudio/Ollama SSE stream disconnection
+      lower.includes('idle timeout waiting for sse') ||
+      lower.includes('stream disconnected before completion') ||
+      // Generic connection failures
+      lower.includes('connection refused') ||
+      lower.includes('connection reset') ||
+      lower.includes('econnrefused') ||
+      lower.includes('econnreset') ||
+      lower.includes('socket hang up')
+    );
+  }
+
   private async executeWithRetry(prompt: string, options: ToolOptions): Promise<ToolResponse> {
     return withRetry(
       () => this.executeTool(prompt, options),
@@ -338,6 +358,7 @@ export class ToolCLIClient {
         shouldRetry: (error) => {
           if (error.timedOut) return false;
           if (error.message?.includes('CLIが見つかりません')) return false;
+          if (error.transient) return true;
           return isRetryableError(error);
         },
         onRetry: (error, attempt) => {
@@ -1304,6 +1325,20 @@ export class ToolCLIClient {
                 }
               }
             }
+
+            // If the parsed response matches a transient error pattern
+            // (e.g. SSE timeout from codex), reject to trigger withRetry.
+            if (this.isTransientToolError(parsed.response)) {
+              const err = new Error(parsed.response);
+              (err as any).transient = true;
+              logger.warn('Tool exited successfully but output indicates transient error, will retry', {
+                tool: tool.name,
+                responsePreview: parsed.response.slice(0, 200)
+              });
+              reject(err);
+              return;
+            }
+
             resolve(parsed);
           } else {
             if (stderr.includes('command not found') || stderr.includes('not found')) {
