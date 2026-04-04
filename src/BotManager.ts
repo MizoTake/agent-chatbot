@@ -483,6 +483,18 @@ export class BotManager {
       });
     };
 
+    // OSS プロバイダー (lmstudio/ollama) 利用時はプリフライトチェック
+    const toolInfo = this.toolClient.getToolInfo(toolName);
+    if (toolInfo?.provider === 'lmstudio') {
+      const lmstudioUrl = process.env.LMSTUDIO_URL || 'http://localhost:1234';
+      const models = await fetchLMStudioModels(lmstudioUrl);
+      if (models.length === 0) {
+        return {
+          text: `❌ [${toolName}] LMStudio が応答しません（${lmstudioUrl}）。LMStudio が起動中でモデルがロードされているか確認してください。`
+        };
+      }
+    }
+
     let result = await this.toolClient.sendPrompt(parsed.prompt, {
       workingDirectory,
       onBackgroundComplete,

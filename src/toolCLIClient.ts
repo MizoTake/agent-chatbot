@@ -1116,6 +1116,10 @@ export class ToolCLIClient {
     return this.defaultToolName;
   }
 
+  getToolInfo(toolName?: string): ToolInfo | undefined {
+    return this.tools.get(toolName || this.defaultToolName);
+  }
+
   async sendPrompt(prompt: string, options: ToolOptions = {}): Promise<ToolResponse> {
     try {
       return await this.executeWithRetry(prompt, options);
@@ -1149,9 +1153,17 @@ export class ToolCLIClient {
       }
 
       if (retryError.name === 'RetryError') {
+        const baseMessage = retryError.lastError?.message || retryError.message;
+        const attempts = retryError.attempts || 0;
+        const isTransient = retryError.lastError?.transient || this.isTransientToolError(baseMessage);
+        const suffix = isTransient
+          ? `\n🔄 ${attempts}回リトライしましたが回復しませんでした。LMStudio/Ollama が応答可能か確認してください。`
+          : attempts > 1
+            ? `\n🔄 ${attempts}回試行しました。`
+            : '';
         return {
           response: '',
-          error: retryError.lastError?.message || retryError.message,
+          error: baseMessage + suffix,
           timedOut: retryError.lastError?.timedOut
         };
       }
