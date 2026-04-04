@@ -367,7 +367,10 @@ export class ToolCLIClient {
       () => this.executeTool(prompt, options),
       {
         maxAttempts: 3,
-        initialDelay: 2000,
+        // 一時エラー (SSE timeout 等) は復帰に時間がかかるため長めの間隔で待つ
+        initialDelay: 5000,
+        maxDelay: 30000,
+        backoffMultiplier: 2,
         shouldRetry: (error) => {
           if (error.timedOut) return false;
           if (error.message?.includes('CLIが見つかりません')) return false;
@@ -377,7 +380,8 @@ export class ToolCLIClient {
         onRetry: (error, attempt) => {
           logger.warn('Retrying tool command', {
             attempt,
-            error: error.message
+            error: error.message,
+            transient: error.transient || false
           });
         }
       }

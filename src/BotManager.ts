@@ -32,6 +32,41 @@ async function fetchLMStudioModels(baseUrl: string): Promise<string[]> {
   }
 }
 
+/**
+ * LMStudio のモデルをウォームアップする。
+ * 小さな completions リクエストを送り、推論パイプラインを事前に起動させる。
+ * これにより本番リクエストでの SSE idle timeout を軽減する。
+ */
+async function warmupLMStudio(baseUrl: string, model: string): Promise<boolean> {
+  try {
+    const url = `${baseUrl.replace(/\/+$/, '')}/v1/chat/completions`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 1
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeout);
+    if (!res.ok) {
+      logger.warn('LMStudio warmup request failed', { status: res.status });
+      return false;
+    }
+    // レスポンスボディを消費して接続を閉じる
+    await res.json().catch(() => {});
+    logger.info('LMStudio model warmed up', { model });
+    return true;
+  } catch (err) {
+    logger.warn('LMStudio warmup failed', { error: err instanceof Error ? err.message : String(err) });
+    return false;
+  }
+}
+
 interface ParsedPrompt {
   prompt: string;
   toolOverride?: string;
@@ -483,7 +518,7 @@ export class BotManager {
       });
     };
 
-    // OSS プロバイダー (lmstudio/ollama) 利用時はプリフライトチェック
+    // OSS プロバイダー (lmstudio/ollama) 利用時はプリフライトチェック＋ウォームアップ
     const toolInfo = this.toolClient.getToolInfo(toolName);
     if (toolInfo?.provider === 'lmstudio') {
       const lmstudioUrl = process.env.LMSTUDIO_URL || 'http://localhost:1234';
@@ -493,6 +528,9 @@ export class BotManager {
           text: `❌ [${toolName}] LMStudio が応答しません（${lmstudioUrl}）。LMStudio が起動中でモデルがロードされているか確認してください。`
         };
       }
+      // モデルの推論パイプラインをウォームアップして SSE idle timeout を軽減
+      const targetModel = toolInfo.model || models[0];
+      await warmupLMStudio(lmstudioUrl, targetModel);
     }
 
     let result = await this.toolClient.sendPrompt(parsed.prompt, {
