@@ -182,7 +182,7 @@ export class ToolCLIClient {
       normalized = ['--dangerously-skip-permissions', ...normalized];
     }
 
-    if (tool.name === 'codex' && !normalized.includes('--sandbox') && !normalized.includes('-s')) {
+    if (tool.name === 'codex' && !normalized.includes('--sandbox') && !normalized.includes('-s') && !normalized.includes('--dangerously-bypass-approvals-and-sandbox')) {
       normalized = ['--sandbox', 'danger-full-access', ...normalized];
     }
 
@@ -267,12 +267,27 @@ export class ToolCLIClient {
         return args;
       }
 
+      const hasBypass = args.includes('--dangerously-bypass-approvals-and-sandbox');
       const beforeExec = args.slice(0, execIndex);
       const afterExec = args.slice(execIndex + 1);
       const strippedBefore = this.stripCodexSandboxOption(beforeExec);
       const strippedAfter = this.stripCodexSandboxOption(afterExec);
-      const sandboxMode = strippedBefore.sandboxMode || strippedAfter.sandboxMode || 'danger-full-access';
 
+      if (hasBypass) {
+        // bypass モードでは --sandbox を付けない
+        const filteredBefore = strippedBefore.args.filter(a => a !== '--dangerously-bypass-approvals-and-sandbox');
+        const filteredAfter = strippedAfter.args.filter(a => a !== '--dangerously-bypass-approvals-and-sandbox');
+        return [
+          ...filteredBefore,
+          '--dangerously-bypass-approvals-and-sandbox',
+          'exec',
+          'resume',
+          '--last',
+          ...filteredAfter
+        ];
+      }
+
+      const sandboxMode = strippedBefore.sandboxMode || strippedAfter.sandboxMode || 'danger-full-access';
       return [
         ...strippedBefore.args,
         '--sandbox',
@@ -993,6 +1008,29 @@ export class ToolCLIClient {
               if (item && typeof item === 'object' && typeof item.text === 'string') {
                 textParts.push(item.text);
               }
+            }
+          }
+        }
+
+        // item.completed with agent_message — codex emits this format for assistant responses
+        if (eventType === 'item.completed' && event.item) {
+          if (event.item.type === 'agent_message' && typeof event.item.text === 'string' && event.item.text.trim()) {
+            textParts.push(event.item.text);
+          }
+          // item.completed with command_execution results
+          if (event.item.type === 'command_execution' && typeof event.item.output === 'string') {
+            // Tool execution output — don't push as response text, but track as tool call
+            const cmd = event.item.command || 'shell';
+            toolCalls.push(cmd);
+          }
+        }
+
+        // item.started with agent_message may also carry partial text
+        if (eventType === 'item.started' && event.item) {
+          if (event.item.type === 'agent_message' && typeof event.item.text === 'string' && event.item.text.trim()) {
+            // Only use if we haven't seen item.completed for this id yet
+            if (!textParts.length) {
+              textParts.push(event.item.text);
             }
           }
         }
