@@ -67,6 +67,36 @@ async function warmupLMStudio(baseUrl: string, model: string): Promise<boolean> 
   }
 }
 
+/**
+ * codex の config.toml にプロジェクトの trust 設定を追加する。
+ * 既に trust 設定がある場合はスキップする。
+ */
+function addCodexTrust(localPath: string): void {
+  try {
+    const home = process.env.USERPROFILE || process.env.HOME || '';
+    if (!home) return;
+    const configPath = path.join(home, '.codex', 'config.toml');
+    if (!fs.existsSync(configPath)) return;
+
+    const content = fs.readFileSync(configPath, 'utf-8');
+    const resolved = path.resolve(localPath);
+    // Windows の codex は \\?\ prefix 付きパスを使う
+    const winPath = process.platform === 'win32' ? `\\\\?\\${resolved}` : resolved;
+    const escapedPath = winPath.replace(/\\/g, '\\\\');
+
+    // 既に登録済みならスキップ
+    if (content.includes(escapedPath) || content.includes(resolved)) {
+      return;
+    }
+
+    const entry = `\n[projects.'${escapedPath}']\ntrust_level = "trusted"\n`;
+    fs.appendFileSync(configPath, entry, 'utf-8');
+    logger.info('Added codex trust for repository', { path: resolved });
+  } catch (err) {
+    logger.warn('Failed to add codex trust', { error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
 interface ParsedPrompt {
   prompt: string;
   toolOverride?: string;
@@ -290,6 +320,43 @@ export class BotManager {
     return this.toolClient.listTools().map(tool => tool.name);
   }
 
+  /**
+   * 応答が文の途中で途切れているか判定する。
+   * ローカル LLM は max_tokens 制限や EOS 誤発火で応答が中途半端に終わることがある。
+   * 「完了」と判定できるパターン以外はすべて途切れとみなす。
+   */
+  private looksIncomplete(text: string): boolean {
+    if (!text || text.length < 10) return false;
+    const trimmed = text.trimEnd();
+    const lastLine = trimmed.split('\n').pop()?.trim() || '';
+
+    // --- 完了パターン: これに該当すれば途切れではない ---
+
+    // 句読点・感嘆符・疑問符で終わっている
+    if (/[。．！!？?]$/.test(trimmed)) return false;
+    // ピリオドで終わっている（英文末 or 省略記号）
+    if (/\.\s*$/.test(trimmed)) return false;
+    // コードブロック閉じで終わっている
+    if (/```\s*$/.test(trimmed)) return false;
+    // 丁寧体の末尾（「ます」「です」「ました」「でした」「ません」）
+    if (/(?:ます|です|ました|でした|ません)\s*$/.test(trimmed)) return false;
+    // 体言止め的な名詞系末尾（「〜こと」「〜もの」「〜はず」「〜つもり」「〜ところ」）
+    if (/(?:こと|もの|はず|つもり|ところ|次第)\s*$/.test(trimmed)) return false;
+    // マークダウンの閉じ記号
+    if (/[)）\]】」』]\s*$/.test(trimmed)) return false;
+    // 空行で終わっている（段落の切れ目）
+    if (/\n\s*$/.test(text)) return false;
+    // 最終行がマークダウンリストアイテムで完結している（ - item / * item / 1. item + 句点）
+    if (/^[-*\d]+[.)]\s+.+[。．.！!？?]$/.test(lastLine)) return false;
+
+    // --- 上記に該当しない → 途切れの可能性が高い ---
+    logger.debug('Response looks incomplete', {
+      lastChars: trimmed.slice(-30),
+      length: trimmed.length
+    });
+    return true;
+  }
+
   private async recoverDisplayableResponse(
     result: ToolResponse,
     toolName: string,
@@ -298,8 +365,19 @@ export class BotManager {
   ): Promise<ToolResponse> {
     const maxToolOnlyFollowUps = 3;
     const maxEmptyResponseFollowUps = 2;
+    const maxContinuationFollowUps = 3;
     let toolOnlyFollowUpCount = 0;
     let emptyResponseFollowUpCount = 0;
+    let continuationFollowUpCount = 0;
+
+    logger.debug('recoverDisplayableResponse entry', {
+      hasError: !!result.error,
+      hasSessionId: !!result.sessionId,
+      sessionId: result.sessionId,
+      responseLength: result.response?.length || 0,
+      toolCallsOnly: result.toolCallsOnly,
+      responseTail: result.response?.slice(-50)
+    });
 
     while (!result.error && result.sessionId) {
       if (result.toolCallsOnly && toolOnlyFollowUpCount < maxToolOnlyFollowUps) {
@@ -350,6 +428,44 @@ export class BotManager {
           this.sessionMap.set(sessionKey, result.sessionId);
         }
         continue;
+      }
+
+      // 応答が途中で途切れている場合、続きをリクエスト
+      if (result.response?.trim() && this.looksIncomplete(result.response) && continuationFollowUpCount < maxContinuationFollowUps) {
+        continuationFollowUpCount++;
+        logger.info('Response appears truncated, requesting continuation', {
+          toolName,
+          sessionId: result.sessionId,
+          attempt: continuationFollowUpCount,
+          responseTail: result.response.slice(-50)
+        });
+
+        const prevText = result.response;
+        const continuation = await this.toolClient.sendPrompt(
+          'continue',
+          {
+            workingDirectory,
+            skipPermissions: this.skipPermissionsEnabled,
+            toolName,
+            resumeConversation: true,
+            sessionId: result.sessionId
+          }
+        );
+
+        if (!continuation.error && continuation.sessionId) {
+          this.sessionMap.set(sessionKey, continuation.sessionId);
+        }
+
+        if (continuation.response?.trim()) {
+          result = {
+            ...continuation,
+            response: prevText + continuation.response
+          };
+          // 結合後もまだ途切れているかもしれないので continue
+          continue;
+        }
+        // 続きが空なら現状の応答で諦める
+        break;
       }
 
       break;
@@ -451,6 +567,7 @@ export class BotManager {
     }
 
     this.storageService.setChannelRepository(channelId, repository.repositoryUrl, cloneResult.localPath);
+    addCodexTrust(cloneResult.localPath);
     const restoredRepository = this.storageService.getChannelRepository(channelId);
 
     logger.info('Repository re-cloned and channel mapping updated', {
@@ -502,25 +619,42 @@ export class BotManager {
     const sessionId = this.sessionMap.get(sessionKey);
 
     const onBackgroundComplete = async (bgResult: any) => {
-      await bot.sendMessage(message.channelId, {
-        text: '✅ バックグラウンド処理が完了しました',
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: bgResult.error
-                ? `❌ [${toolName}] バックグラウンド処理でエラーが発生しました:\n${bgResult.error}`
-                : `✅ [${toolName}] バックグラウンド処理が完了しました:\n${bgResult.response}`
+      // バックグラウンド完了時は結果がある場合のみ通知
+      if (bgResult.response?.trim()) {
+        await bot.sendMessage(message.channelId, {
+          text: bgResult.response,
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: bgResult.response
+              }
             }
-          }
-        ]
-      });
+          ]
+        });
+      } else if (bgResult.error) {
+        await bot.sendMessage(message.channelId, {
+          text: `❌ [${toolName}] ${bgResult.error}`,
+          blocks: [
+            {
+              type: 'section',
+              text: {
+                type: 'mrkdwn',
+                text: `❌ [${toolName}] ${bgResult.error}`
+              }
+            }
+          ]
+        });
+      }
+      // 応答もエラーもない場合は何も送信しない
     };
 
-    // OSS プロバイダー (lmstudio/ollama) 利用時はプリフライトチェック＋ウォームアップ
+    // LMStudio 利用時はプリフライトチェック＋ウォームアップ
+    // ToolConfig.provider またはツール名 "codex" で LMStudio 使用を検出
     const toolInfo = this.toolClient.getToolInfo(toolName);
-    if (toolInfo?.provider === 'lmstudio') {
+    const usesLMStudio = toolInfo?.provider === 'lmstudio' || toolName === 'codex';
+    if (usesLMStudio) {
       const lmstudioUrl = process.env.LMSTUDIO_URL || 'http://localhost:1234';
       const models = await fetchLMStudioModels(lmstudioUrl);
       if (models.length === 0) {
@@ -529,7 +663,7 @@ export class BotManager {
         };
       }
       // モデルの推論パイプラインをウォームアップして SSE idle timeout を軽減
-      const targetModel = toolInfo.model || models[0];
+      const targetModel = toolInfo?.model || models[0];
       await warmupLMStudio(lmstudioUrl, targetModel);
     }
 
@@ -1384,6 +1518,7 @@ export class BotManager {
         }
 
         this.storageService.setChannelRepository(message.channelId, `local://${repoName}`, createResult.localPath!);
+        addCodexTrust(createResult.localPath!);
         const clearedConversationCount = this.clearConversationState(message.channelId);
 
         return {
@@ -1433,6 +1568,7 @@ export class BotManager {
         }
 
         this.storageService.setChannelRepository(message.channelId, url, cloneResult.localPath!);
+        addCodexTrust(cloneResult.localPath!);
         const clearedConversationCount = this.clearConversationState(message.channelId);
 
         return {
