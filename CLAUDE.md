@@ -30,29 +30,23 @@ npx tsc --noEmit
 
 ## Architecture Overview
 
-This is a multi-platform bot application that connects Slack and Discord to local agent CLIs (Claude/Codex/vibe-local) with Git repository integration. The architecture consists of:
+This is a Discord bot application that connects local agent CLIs (Claude/Codex/vibe-local) with Git repository integration. The architecture consists of:
 
 ### Core Components
 
 1. **Main Application (`src/index.ts`)**
-   - Detects available platform credentials and initializes appropriate bots
-   - Manages multiple bot instances through BotManager
+   - Validates Discord credentials and initializes the Discord bot
    - Includes a health check HTTP server on the configured port
-   - Handles graceful shutdown for all active bots
+   - Handles graceful shutdown for the running bot
 
 2. **Bot Manager (`src/BotManager.ts`)**
-   - Central coordinator for all bot instances
-   - Handles common message processing logic
-   - Routes commands and messages to the tool CLI client
+   - Wires together runtime services and the Discord adapter
    - Manages bot lifecycle (start/stop)
-   - Integrates with Storage and Git services for repository management
-   - Handles repository-aware command execution
 
-3. **Platform Adapters**
-   - **SlackAdapter (`src/adapters/SlackAdapter.ts`)**: Implements Slack-specific features using Bolt framework
+3. **Platform Adapter**
    - **DiscordAdapter (`src/adapters/DiscordAdapter.ts`)**: Implements Discord-specific features using discord.js
-   - Both implement the common `BotAdapter` interface for consistency
-   - Support for `/agent-repo` command for repository management
+   - Implements the common `BotAdapter` interface
+   - Supports `/agent-repo` command for repository management
 
 4. **Tool CLI Client (`src/toolCLIClient.ts`)**
    - Abstraction layer for communicating with CLI tools (Claude/Codex/vibe-local)
@@ -73,10 +67,6 @@ This is a multi-platform bot application that connects Slack and Discord to loca
 ### Key Integration Points
 
 - **Platform Authentication**:
-  - **Slack**: Requires three tokens configured via environment variables:
-    - `SLACK_BOT_TOKEN`: OAuth token for bot operations
-    - `SLACK_SIGNING_SECRET`: Request verification
-    - `SLACK_APP_TOKEN`: Socket Mode connection
   - **Discord**: Requires one token:
     - `DISCORD_BOT_TOKEN`: Bot authentication token
 
@@ -92,7 +82,7 @@ All user-facing operations follow this pattern:
 2. Validate user input
 3. Send initial acknowledgment to user
 4. Process request with appropriate error messaging
-5. Format response with Slack blocks for rich formatting
+5. Format response with Discord-compatible text or blocks
 
 ### Repository Integration
 

@@ -2,6 +2,41 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ConfigValidator } from './validator';
 
+function withEnv(env: NodeJS.ProcessEnv, callback: () => void): void {
+  const backup = {
+    DISCORD_BOT_TOKEN: process.env.DISCORD_BOT_TOKEN,
+    PORT: process.env.PORT,
+    DEBUG: process.env.DEBUG
+  };
+
+  delete process.env.DISCORD_BOT_TOKEN;
+  delete process.env.PORT;
+  delete process.env.DEBUG;
+  Object.assign(process.env, env);
+
+  try {
+    callback();
+  } finally {
+    if (backup.DISCORD_BOT_TOKEN === undefined) {
+      delete process.env.DISCORD_BOT_TOKEN;
+    } else {
+      process.env.DISCORD_BOT_TOKEN = backup.DISCORD_BOT_TOKEN;
+    }
+
+    if (backup.PORT === undefined) {
+      delete process.env.PORT;
+    } else {
+      process.env.PORT = backup.PORT;
+    }
+
+    if (backup.DEBUG === undefined) {
+      delete process.env.DEBUG;
+    } else {
+      process.env.DEBUG = backup.DEBUG;
+    }
+  }
+}
+
 // ─── validateRepositoryUrl ───────────────────────────────────────────────────
 
 test('ConfigValidator.validateRepositoryUrl: HTTPS URLを許可する', () => {
@@ -63,4 +98,43 @@ test('ConfigValidator.validatePath: ベースパス内のパスを許可する',
 test('ConfigValidator.validatePath: ベースパス外への参照を拒否する', () => {
   assert.equal(ConfigValidator.validatePath('/etc/passwd', '/base/repos'), false);
   assert.equal(ConfigValidator.validatePath('/base/other', '/base/repos'), false);
+  assert.equal(ConfigValidator.validatePath('/base/repos-evil/project', '/base/repos'), false);
+});
+
+// ─── validateEnvironment ─────────────────────────────────────────────────────
+
+test('ConfigValidator.validateEnvironment: 有効な Discord 設定をサニタイズする', () => {
+  withEnv({
+    DISCORD_BOT_TOKEN: 'discord.token.valid',
+    PORT: '3000',
+    DEBUG: 'true'
+  }, () => {
+    const actual = ConfigValidator.validateEnvironment();
+    assert.equal(actual.valid, true);
+    assert.deepEqual(actual.sanitized, {
+      DISCORD_BOT_TOKEN: 'discord.token.valid',
+      PORT: '3000',
+      DEBUG: 'true'
+    });
+  });
+});
+
+test('ConfigValidator.validateEnvironment: Discord トークンがなければエラーにする', () => {
+  withEnv({}, () => {
+    const actual = ConfigValidator.validateEnvironment();
+    assert.equal(actual.valid, false);
+    assert.ok(actual.errors.includes('DISCORD_BOT_TOKEN is required'));
+  });
+});
+
+test('ConfigValidator.validateEnvironment: 不正な Discord トークンと Port を検出する', () => {
+  withEnv({
+    DISCORD_BOT_TOKEN: 'short',
+    PORT: '70000'
+  }, () => {
+    const actual = ConfigValidator.validateEnvironment();
+    assert.equal(actual.valid, false);
+    assert.ok(actual.errors.includes('DISCORD_BOT_TOKEN is invalid'));
+    assert.ok(actual.errors.includes('PORT must be a valid port number (1-65535)'));
+  });
 });

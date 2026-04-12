@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 - `src/` holds application code in TypeScript.
-- `src/adapters/` contains platform adapters (`SlackAdapter`, `DiscordAdapter`).
+- `src/adapters/` contains platform adapters (`DiscordAdapter`).
 - `src/services/` contains integration and state services (Git, storage).
 - `src/config/` handles config loading and validation.
 - `src/utils/` provides shared utilities (logging, retries, progress helpers).

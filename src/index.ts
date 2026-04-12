@@ -19,30 +19,15 @@ dotenv.config();
   
   const config = validation.sanitized;
   const port = config.PORT || '3000';
-  
-  // Create bot manager
   const botManager = new BotManager();
-  
-  // Add Slack bot if credentials are provided
-  if (config.SLACK_BOT_TOKEN && config.SLACK_SIGNING_SECRET && config.SLACK_APP_TOKEN) {
-    logger.info('Slack credentials validated, adding Slack bot');
-    botManager.addSlackBot(
-      config.SLACK_BOT_TOKEN,
-      config.SLACK_SIGNING_SECRET,
-      config.SLACK_APP_TOKEN
-    );
-  }
-  
-  // Add Discord bot if token is provided
+
   if (config.DISCORD_BOT_TOKEN) {
     logger.info('Discord token validated, adding Discord bot');
     botManager.addDiscordBot(config.DISCORD_BOT_TOKEN);
   }
-  
-  // Start all bots
+
   await botManager.startAll();
-  
-  // Simple health check server
+
   const healthServer = http.createServer((req, res) => {
     if (req.url === '/health' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -56,9 +41,6 @@ dotenv.config();
   healthServer.listen(port, () => {
     logger.info('Health check server started', { port });
   });
-  
-  // Graceful shutdown
-  // グレースフルシャットダウンの改善
   let isShuttingDown = false;
   
   const shutdown = async (signal: string) => {

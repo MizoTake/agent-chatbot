@@ -78,7 +78,6 @@ if [ ! -f .env ]; then
         print_warning "重要: .envファイルを編集してトークンを設定してください"
         echo ""
         echo "必要な設定:"
-        echo "  Slack: SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, SLACK_APP_TOKEN"
         echo "  Discord: DISCORD_BOT_TOKEN"
         echo ""
         echo "設定後、再度このスクリプトを実行してください"
@@ -99,19 +98,10 @@ if [ -z "$AGENT_CHATBOT_LOG_TOOL_STREAM" ]; then
 fi
 
 # プラットフォーム設定の確認
-has_platform=false
-if [ -n "$SLACK_BOT_TOKEN" ] && [ -n "$SLACK_SIGNING_SECRET" ] && [ -n "$SLACK_APP_TOKEN" ]; then
-    print_success "Slack設定を検出"
-    has_platform=true
-fi
-
 if [ -n "$DISCORD_BOT_TOKEN" ]; then
     print_success "Discord設定を検出"
-    has_platform=true
-fi
-
-if [ "$has_platform" = false ]; then
-    print_error "SlackまたはDiscordの設定が必要です"
+else
+    print_error "Discordの設定が必要です"
     exit 1
 fi
 

@@ -5,18 +5,8 @@
 import * as path from 'path';
 
 interface EnvironmentVariables {
-  // Slack
-  SLACK_BOT_TOKEN?: string;
-  SLACK_SIGNING_SECRET?: string;
-  SLACK_APP_TOKEN?: string;
-  
-  // Discord
   DISCORD_BOT_TOKEN?: string;
-  
-  // Server
   PORT?: string;
-  
-  // Debug
   DEBUG?: string;
 }
 
@@ -66,36 +56,7 @@ export class ConfigValidator {
   } {
     const errors: string[] = [];
     const sanitized: EnvironmentVariables = {};
-    
-    // Slack設定の検証
-    if (process.env.SLACK_BOT_TOKEN || process.env.SLACK_SIGNING_SECRET || process.env.SLACK_APP_TOKEN) {
-      // Slackを使用する場合は3つすべて必要
-      if (!process.env.SLACK_BOT_TOKEN) {
-        errors.push('SLACK_BOT_TOKEN is required when using Slack integration');
-      } else if (!this.validateToken(process.env.SLACK_BOT_TOKEN, 'xoxb-')) {
-        errors.push('SLACK_BOT_TOKEN is invalid');
-      } else {
-        sanitized.SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN.trim();
-      }
-      
-      if (!process.env.SLACK_SIGNING_SECRET) {
-        errors.push('SLACK_SIGNING_SECRET is required when using Slack integration');
-      } else if (!this.validateToken(process.env.SLACK_SIGNING_SECRET)) {
-        errors.push('SLACK_SIGNING_SECRET is invalid');
-      } else {
-        sanitized.SLACK_SIGNING_SECRET = process.env.SLACK_SIGNING_SECRET.trim();
-      }
-      
-      if (!process.env.SLACK_APP_TOKEN) {
-        errors.push('SLACK_APP_TOKEN is required when using Slack integration');
-      } else if (!this.validateToken(process.env.SLACK_APP_TOKEN, 'xapp-')) {
-        errors.push('SLACK_APP_TOKEN is invalid');
-      } else {
-        sanitized.SLACK_APP_TOKEN = process.env.SLACK_APP_TOKEN.trim();
-      }
-    }
-    
-    // Discord設定の検証
+
     if (process.env.DISCORD_BOT_TOKEN) {
       if (!this.validateToken(process.env.DISCORD_BOT_TOKEN)) {
         errors.push('DISCORD_BOT_TOKEN is invalid');
@@ -121,11 +82,10 @@ export class ConfigValidator {
       }
     }
     
-    // 少なくとも1つのボット設定が必要
-    if (!sanitized.SLACK_BOT_TOKEN && !sanitized.DISCORD_BOT_TOKEN) {
-      errors.push('At least one bot integration (Slack or Discord) must be configured');
+    if (!sanitized.DISCORD_BOT_TOKEN) {
+      errors.push('DISCORD_BOT_TOKEN is required');
     }
-    
+
     return {
       valid: errors.length === 0,
       errors,
@@ -139,9 +99,8 @@ export class ConfigValidator {
   static validatePath(inputPath: string, basePath: string): boolean {
     const resolvedPath = path.resolve(basePath, inputPath);
     const resolvedBase = path.resolve(basePath);
-    
-    // 解決されたパスがベースパス内にあることを確認
-    return resolvedPath.startsWith(resolvedBase);
+    const relativePath = path.relative(resolvedBase, resolvedPath);
+    return relativePath === '' || (!relativePath.startsWith('..') && !path.isAbsolute(relativePath));
   }
   
   /**

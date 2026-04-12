@@ -1,7 +1,7 @@
 # Repository Feature
 
 ## Overview
-This feature allows you to clone Git repositories and link them to specific Slack/Discord channels. When the agent responds in a channel with a linked repository, it will have the context of that repository.
+This feature allows you to clone Git repositories and link them to specific Discord channels. When the agent responds in a channel with a linked repository, it will have the context of that repository.
 
 ## Usage
 
