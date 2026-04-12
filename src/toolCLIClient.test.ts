@@ -373,6 +373,99 @@ test('ToolCLIClient: codex に --json, --local-provider, --skip-git-repo-check �
   }
 });
 
+test('ToolCLIClient: codex 実行前に project trust を config.toml に登録する', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-trust-codex-'));
+  const homeDir = path.join(tempDir, 'home');
+  const repoDir = path.join(tempDir, 'repo');
+  const codexDir = path.join(homeDir, '.codex');
+  const configPath = path.join(codexDir, 'config.toml');
+  const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
+  fs.mkdirSync(codexDir, { recursive: true });
+  fs.mkdirSync(repoDir, { recursive: true });
+  fs.writeFileSync(configPath, 'model = "gpt-5.4"\n', 'utf8');
+  process.env.HOME = homeDir;
+  process.env.USERPROFILE = homeDir;
+  const client = new ToolCLIClient({}, 'codex', 5000);
+
+  try {
+    const ensureProjectTrusted = (client as any).ensureProjectTrusted.bind(client);
+    const codexTool = {
+      name: 'codex',
+      command: 'codex',
+      args: ['exec', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: false
+    };
+
+    ensureProjectTrusted(codexTool, repoDir);
+
+    const actual = fs.readFileSync(configPath, 'utf8');
+    const escapedPath = repoDir.replace(/\\/g, '\\\\');
+    assert.match(actual, new RegExp(`\\[projects\\.'${escapedPath}'\\]`));
+    assert.match(actual, /trust_level = "trusted"/);
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    if (previousUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = previousUserProfile;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    client.cleanup();
+  }
+});
+
+test('ToolCLIClient: claude 実行前に project trust を .claude.json に登録する', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-trust-claude-'));
+  const homeDir = path.join(tempDir, 'home');
+  const repoDir = path.join(tempDir, 'repo');
+  const claudeConfigPath = path.join(homeDir, '.claude.json');
+  const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
+  fs.mkdirSync(homeDir, { recursive: true });
+  fs.mkdirSync(repoDir, { recursive: true });
+  fs.writeFileSync(claudeConfigPath, JSON.stringify({ projects: {} }, null, 2), 'utf8');
+  process.env.HOME = homeDir;
+  process.env.USERPROFILE = homeDir;
+  const client = new ToolCLIClient({}, 'claude', 5000);
+
+  try {
+    const ensureProjectTrusted = (client as any).ensureProjectTrusted.bind(client);
+    const claudeTool = {
+      name: 'claude',
+      command: 'claude',
+      args: ['--print', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: true
+    };
+
+    ensureProjectTrusted(claudeTool, repoDir);
+
+    const actual = JSON.parse(fs.readFileSync(claudeConfigPath, 'utf8'));
+    const normalizedPath = repoDir.replace(/\\/g, '/');
+    assert.equal(actual.projects[normalizedPath].hasTrustDialogAccepted, true);
+    assert.deepEqual(actual.projects[normalizedPath].allowedTools, []);
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    if (previousUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = previousUserProfile;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    client.cleanup();
+  }
+});
+
 test('ToolCLIClient: add resume option per tool', () => {
   const client = new ToolCLIClient({}, 'claude', 5000);
 
@@ -812,6 +905,64 @@ test('ToolCLIClient: PATH から CLI 実体パスを解決する', () => {
   }
 });
 
+test('ToolCLIClient: Windows の .cmd 経由実行でも codex trust を補完する', async () => {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolcli-cmd-trust-'));
+  const homeDir = path.join(tempDir, 'home');
+  const repoDir = path.join(tempDir, 'repo');
+  const toolDir = path.join(tempDir, 'bin');
+  const commandPath = path.join(toolDir, 'fake-codex.cmd');
+  const configPath = path.join(homeDir, '.codex', 'config.toml');
+  const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
+  fs.mkdirSync(repoDir, { recursive: true });
+  fs.mkdirSync(toolDir, { recursive: true });
+  fs.writeFileSync(commandPath, '@echo off\r\necho cmd-ok\r\n', 'utf8');
+  process.env.HOME = homeDir;
+  process.env.USERPROFILE = homeDir;
+  const client = new ToolCLIClient(
+    {
+      codex: {
+        command: commandPath,
+        args: ['exec', '{prompt}'],
+        versionArgs: ['--version']
+      }
+    },
+    'codex',
+    5000
+  );
+
+  try {
+    const result = await client.sendPrompt('hello', {
+      toolName: 'codex',
+      workingDirectory: repoDir
+    });
+
+    assert.equal(result.error, undefined);
+    assert.equal(result.response, 'cmd-ok');
+    const actual = fs.readFileSync(configPath, 'utf8');
+    const escapedPath = repoDir.replace(/\\/g, '\\\\');
+    assert.match(actual, new RegExp(`\\[projects\\.'${escapedPath}'\\]`));
+    assert.match(actual, /trust_level = "trusted"/);
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    if (previousUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = previousUserProfile;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    client.cleanup();
+  }
+});
+
 // ────────────────────────────────────────────────────────────────────────────
 // 今回追加した機能のテスト
 // ────────────────────────────────────────────────────────────────────────────
@@ -988,4 +1139,3 @@ test('parseToolOutput: opencode — toolCallsOnly フラグが設定される', 
 
   client.cleanup();
 });
-

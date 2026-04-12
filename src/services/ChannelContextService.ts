@@ -190,13 +190,19 @@ export class ChannelContextService {
 
       const content = fs.readFileSync(configPath, 'utf-8');
       const resolved = path.resolve(localPath);
-      const winPath = process.platform === 'win32' ? `\\\\?\\${resolved}` : resolved;
-      const escapedPath = winPath.replace(/\\/g, '\\\\');
-      if (content.includes(escapedPath) || content.includes(resolved)) {
+      const escapedResolvedPath = resolved.replace(/\\/g, '\\\\');
+      const escapedLegacyWinPath = process.platform === 'win32'
+        ? `\\\\?\\${resolved}`.replace(/\\/g, '\\\\')
+        : '';
+      if (
+        content.includes(escapedResolvedPath) ||
+        content.includes(resolved) ||
+        (escapedLegacyWinPath && content.includes(escapedLegacyWinPath))
+      ) {
         return;
       }
 
-      const entry = `\n[projects.'${escapedPath}']\ntrust_level = "trusted"\n`;
+      const entry = `\n[projects.'${escapedResolvedPath}']\ntrust_level = "trusted"\n`;
       fs.appendFileSync(configPath, entry, 'utf-8');
       logger.info('Added codex trust for repository', { path: resolved });
     } catch (error) {

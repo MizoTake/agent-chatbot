@@ -1162,6 +1162,141 @@ export class ToolCLIClient {
     return this.tools.get(toolName || this.defaultToolName);
   }
 
+  private ensureProjectTrusted(tool: ToolInfo, workingDirectory?: string): void {
+    if (!workingDirectory || (tool.name !== 'claude' && tool.name !== 'codex')) {
+      return;
+    }
+
+    const resolvedPath = path.resolve(workingDirectory);
+    if (!fs.existsSync(resolvedPath)) {
+      return;
+    }
+
+    try {
+      if (tool.name === 'claude') {
+        this.ensureClaudeProjectTrust(resolvedPath);
+      }
+      if (tool.name === 'codex') {
+        this.ensureCodexProjectTrust(resolvedPath);
+      }
+    } catch (error) {
+      logger.warn('Failed to ensure project trust', {
+        tool: tool.name,
+        workingDirectory: resolvedPath,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+
+  private getUserHomeDirectory(): string | undefined {
+    const home = process.env.USERPROFILE || process.env.HOME || (process.env.HOMEDRIVE && process.env.HOMEPATH ? `${process.env.HOMEDRIVE}${process.env.HOMEPATH}` : undefined);
+    return home?.trim() || undefined;
+  }
+
+  private getClaudeProjectKeys(projectPath: string): string[] {
+    const normalized = process.platform === 'win32' ? projectPath.replace(/\\/g, '/') : projectPath;
+    return [...new Set([normalized, projectPath])];
+  }
+
+  private buildDefaultClaudeProjectEntry(existingEntry: any = {}): Record<string, unknown> {
+    const current = existingEntry && typeof existingEntry === 'object' && !Array.isArray(existingEntry) ? existingEntry : {};
+    return {
+      allowedTools: Array.isArray(current.allowedTools) ? current.allowedTools : [],
+      mcpContextUris: Array.isArray(current.mcpContextUris) ? current.mcpContextUris : [],
+      mcpServers: current.mcpServers && typeof current.mcpServers === 'object' && !Array.isArray(current.mcpServers) ? current.mcpServers : {},
+      enabledMcpjsonServers: Array.isArray(current.enabledMcpjsonServers) ? current.enabledMcpjsonServers : [],
+      disabledMcpjsonServers: Array.isArray(current.disabledMcpjsonServers) ? current.disabledMcpjsonServers : [],
+      ...current,
+      hasTrustDialogAccepted: true
+    };
+  }
+
+  private ensureClaudeProjectTrust(projectPath: string): void {
+    const homeDir = this.getUserHomeDirectory();
+    if (!homeDir) {
+      return;
+    }
+
+    const configPath = path.join(homeDir, '.claude.json');
+    let parsed: any = {};
+    if (fs.existsSync(configPath)) {
+      parsed = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      parsed = {};
+    }
+    if (!parsed.projects || typeof parsed.projects !== 'object' || Array.isArray(parsed.projects)) {
+      parsed.projects = {};
+    }
+
+    let changed = !fs.existsSync(configPath);
+    for (const key of this.getClaudeProjectKeys(projectPath)) {
+      const nextEntry = this.buildDefaultClaudeProjectEntry(parsed.projects[key]);
+      const previousEntry = parsed.projects[key];
+      if (JSON.stringify(previousEntry) !== JSON.stringify(nextEntry)) {
+        parsed.projects[key] = nextEntry;
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8');
+  }
+
+  private escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  private escapeTomlLiteralString(value: string): string {
+    return value.replace(/'/g, "''");
+  }
+
+  private upsertCodexProjectTrust(configContent: string, projectPath: string): string {
+    const newline = configContent.includes('\r\n') ? '\r\n' : '\n';
+    const escapedProjectPath = this.escapeTomlLiteralString(projectPath);
+    const sectionHeader = `[projects.'${escapedProjectPath}']`;
+    const trustLine = `trust_level = "trusted"`;
+    const sectionPattern = new RegExp(`(^\\[projects\\.'${this.escapeRegex(escapedProjectPath)}'\\]\\r?\\n)([\\s\\S]*?)(?=^\\[|\\Z)`, 'm');
+
+    if (sectionPattern.test(configContent)) {
+      return configContent.replace(sectionPattern, (_match, header: string, body: string) => {
+        if (/^trust_level\s*=\s*".*?"\s*$/m.test(body)) {
+          const updatedBody = body.replace(/^trust_level\s*=\s*".*?"\s*$/m, trustLine);
+          return `${header}${updatedBody}`;
+        }
+        return `${header}${trustLine}${newline}${body}`;
+      });
+    }
+
+    const trimmed = configContent.trimEnd();
+    if (!trimmed) {
+      return `${sectionHeader}${newline}${trustLine}${newline}`;
+    }
+    return `${trimmed}${newline}${newline}${sectionHeader}${newline}${trustLine}${newline}`;
+  }
+
+  private ensureCodexProjectTrust(projectPath: string): void {
+    const homeDir = this.getUserHomeDirectory();
+    if (!homeDir) {
+      return;
+    }
+
+    const configDir = path.join(homeDir, '.codex');
+    const configPath = path.join(configDir, 'config.toml');
+    const current = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : '';
+    const updated = this.upsertCodexProjectTrust(current, projectPath);
+    if (updated === current) {
+      return;
+    }
+
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(configPath, updated, 'utf8');
+  }
+
   async sendPrompt(prompt: string, options: ToolOptions = {}): Promise<ToolResponse> {
     try {
       return await this.executeWithRetry(prompt, options);
@@ -1230,6 +1365,7 @@ export class ToolCLIClient {
     } = options;
 
     const tool = this.resolveTool(toolName);
+    this.ensureProjectTrusted(tool, workingDirectory);
 
     return new Promise((resolve, reject) => {
       logger.debug('Executing tool command', {

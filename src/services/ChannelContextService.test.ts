@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 
 import { ChannelContextService } from './ChannelContextService';
 
@@ -220,4 +223,86 @@ test('ChannelContextService: 再クローン失敗時は元のリポジトリと
 
   assert.equal(actual.repository, repository);
   assert.equal(actual.error, 'network failure');
+});
+
+test('ChannelContextService: addCodexTrust は Windows で \\?\\ なしのパスを書き込む', () => {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'channel-context-trust-'));
+  const tempHome = path.join(tempDir, 'home');
+  const codexDir = path.join(tempHome, '.codex');
+  const configPath = path.join(codexDir, 'config.toml');
+  const repoPath = path.join(tempDir, 'repositories', 'sample-repo');
+  const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
+  fs.mkdirSync(codexDir, { recursive: true });
+  fs.mkdirSync(repoPath, { recursive: true });
+  fs.writeFileSync(configPath, 'model = "gpt-5.4"\n', 'utf8');
+  process.env.HOME = tempHome;
+  process.env.USERPROFILE = tempHome;
+  const service = new ChannelContextService({} as any, {} as any, {} as any);
+
+  try {
+    (service as any).addCodexTrust(repoPath);
+
+    const actual = fs.readFileSync(configPath, 'utf8');
+    const escapedPath = path.resolve(repoPath).replace(/\\/g, '\\\\');
+    assert.ok(actual.includes(`[projects.'${escapedPath}']`));
+    assert.doesNotMatch(actual, /\\\\\?\\/);
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    if (previousUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = previousUserProfile;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('ChannelContextService: addCodexTrust は既存の legacy trust エントリがあれば追記しない', () => {
+  if (process.platform !== 'win32') {
+    return;
+  }
+
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'channel-context-trust-legacy-'));
+  const tempHome = path.join(tempDir, 'home');
+  const codexDir = path.join(tempHome, '.codex');
+  const configPath = path.join(codexDir, 'config.toml');
+  const repoPath = path.join(tempDir, 'repositories', 'sample-repo');
+  const previousHome = process.env.HOME;
+  const previousUserProfile = process.env.USERPROFILE;
+  fs.mkdirSync(codexDir, { recursive: true });
+  fs.mkdirSync(repoPath, { recursive: true });
+  const legacyPath = `\\\\?\\${path.resolve(repoPath)}`.replace(/\\/g, '\\\\');
+  fs.writeFileSync(configPath, `model = "gpt-5.4"\n\n[projects.'${legacyPath}']\ntrust_level = "trusted"\n`, 'utf8');
+  process.env.HOME = tempHome;
+  process.env.USERPROFILE = tempHome;
+  const service = new ChannelContextService({} as any, {} as any, {} as any);
+
+  try {
+    (service as any).addCodexTrust(repoPath);
+
+    const actual = fs.readFileSync(configPath, 'utf8');
+    const sectionCount = (actual.match(/\[projects\.'/g) || []).length;
+    assert.equal(sectionCount, 1);
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = previousHome;
+    }
+    if (previousUserProfile === undefined) {
+      delete process.env.USERPROFILE;
+    } else {
+      process.env.USERPROFILE = previousUserProfile;
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
