@@ -20,6 +20,8 @@ export interface PromptExecutionContext {
 }
 
 export class PromptExecutionService {
+  private readonly channelExecutionQueues = new Map<string, Promise<unknown>>();
+
   constructor(
     private readonly toolRuntimeService: ToolRuntimeService,
     private readonly conversationSessionService: ConversationSessionService,
@@ -64,90 +66,115 @@ export class PromptExecutionService {
       return this.channelContextService.buildUnknownToolResponse(parsed.toolOverride, toolClient);
     }
 
-    const resolvedRepository = await this.channelContextService.resolveChannelRepository(message.channelId);
-    if (resolvedRepository.error) {
-      return {
-        text: `❌ リポジトリのローカルパスが見つからず、再クローンに失敗しました: ${resolvedRepository.error}`
-      };
-    }
-
-    const toolName = this.channelContextService.getEffectiveToolName(message.channelId, toolClient, parsed.toolOverride);
-    if (resolvedRepository.restored) {
-      const clearedConversationCount = this.conversationSessionService.clearConversationState(message.channelId);
-      logger.info('Cleared conversation state after repository restore', {
-        channelId: message.channelId,
-        clearedConversationCount
-      });
-    }
-
-    const runtimeError = await this.toolRuntimeService.ensureToolReady(toolName);
-    if (runtimeError) {
-      return { text: runtimeError };
-    }
-
-    const context: PromptExecutionContext = {
-      channelId: message.channelId,
-      toolName,
-      workingDirectory: resolvedRepository.repository?.localPath
-    };
-
-    let result = await toolClient.sendPrompt(parsed.prompt, {
-      workingDirectory: context.workingDirectory,
-      onBackgroundComplete: async (backgroundResult: ToolResponse) => {
-        const backgroundResponse = this.buildBackgroundResponse(context.toolName, backgroundResult);
-        if (backgroundResponse) {
-          await notify(backgroundResponse);
-        }
-      },
-      skipPermissions: this.toolRuntimeService.isSkipPermissionsEnabled(),
-      toolName,
-      resumeConversation: this.conversationSessionService.shouldResumeConversation(message.channelId),
-      sessionId: this.conversationSessionService.getSessionId(message.channelId, toolName)
-    });
-
-    if (!result.error || result.timedOut) {
-      this.conversationSessionService.markConversationActive(message.channelId);
-      if (result.sessionId) {
-        this.conversationSessionService.storeSessionId(message.channelId, toolName, result.sessionId);
+    return this.withChannelLock(message.channelId, async () => {
+      const resolvedRepository = await this.channelContextService.resolveChannelRepository(message.channelId);
+      if (!resolvedRepository.repository) {
+        return {
+          text: '❌ このチャンネルにはリポジトリが紐づいていません。`/agent-repo add` でリポジトリを紐づけてから実行してください。'
+        };
       }
-    }
 
-    result = await this.recoverDisplayableResponse(result, context);
-    if (result.error) {
-      return {
-        text: `❌ [${toolName}] ${result.error}`
-      };
-    }
+      if (resolvedRepository.error) {
+        return {
+          text: `❌ リポジトリのローカルパスが見つからず、再クローンに失敗しました: ${resolvedRepository.error}`
+        };
+      }
 
-    if (!result.response?.trim()) {
-      result = await this.attemptFreshTextOnlyRetry(parsed.prompt, context);
-    }
+      const toolName = this.channelContextService.getEffectiveToolName(message.channelId, toolClient, parsed.toolOverride);
+      if (resolvedRepository.restored) {
+        const clearedConversationCount = this.conversationSessionService.clearConversationState(message.channelId);
+        logger.info('Cleared conversation state after repository restore', {
+          channelId: message.channelId,
+          clearedConversationCount
+        });
+      }
 
-    if (!result.response?.trim()) {
-      logger.warn('Empty response from tool', {
+      const runtimeError = await this.toolRuntimeService.ensureToolReady(toolName);
+      if (runtimeError) {
+        return { text: runtimeError };
+      }
+
+      const context: PromptExecutionContext = {
+        channelId: message.channelId,
         toolName,
-        sessionId: result.sessionId,
-        hasError: !!result.error,
-        timedOut: result.timedOut
-      });
-      return {
-        text: `⚠️ [${toolName}] ツールは正常に実行されましたが、表示可能な応答がありませんでした。ツールがコード編集などの操作のみを行った可能性があります。再度お試しください。`
+        workingDirectory: resolvedRepository.repository.localPath
       };
-    }
 
-    const body = showToolPrefix ? `*${toolName} says:*\n${result.response}` : result.response;
-    return {
-      text: result.response,
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: body
+      let result = await toolClient.sendPrompt(parsed.prompt, {
+        workingDirectory: context.workingDirectory,
+        onBackgroundComplete: async (backgroundResult: ToolResponse) => {
+          const backgroundResponse = this.buildBackgroundResponse(context.toolName, backgroundResult);
+          if (backgroundResponse) {
+            await notify(backgroundResponse);
           }
+        },
+        skipPermissions: this.toolRuntimeService.isSkipPermissionsEnabled(),
+        toolName,
+        resumeConversation: this.conversationSessionService.shouldResumeConversation(message.channelId),
+        sessionId: this.conversationSessionService.getSessionId(message.channelId, toolName)
+      });
+
+      if (!result.error || result.timedOut) {
+        this.conversationSessionService.markConversationActive(message.channelId);
+        if (result.sessionId) {
+          this.conversationSessionService.storeSessionId(message.channelId, toolName, result.sessionId);
         }
-      ]
-    };
+      }
+
+      result = await this.recoverDisplayableResponse(result, context);
+      if (result.timedOut && !result.response?.trim() && !result.error) {
+        return null;
+      }
+
+      if (result.error) {
+        return {
+          text: `❌ [${toolName}] ${result.error}`
+        };
+      }
+
+      if (!result.response?.trim()) {
+        result = await this.attemptFreshTextOnlyRetry(parsed.prompt, context);
+      }
+
+      if (!result.response?.trim()) {
+        logger.warn('Empty response from tool', {
+          toolName,
+          sessionId: result.sessionId,
+          hasError: !!result.error,
+          timedOut: result.timedOut
+        });
+        return {
+          text: `⚠️ [${toolName}] ツールは正常に実行されましたが、表示可能な応答がありませんでした。ツールがコード編集などの操作のみを行った可能性があります。再度お試しください。`
+        };
+      }
+
+      const body = showToolPrefix ? `*${toolName} says:*\n${result.response}` : result.response;
+      return {
+        text: result.response,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: body
+            }
+          }
+        ]
+      };
+    });
+  }
+
+  private async withChannelLock<T>(channelId: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.channelExecutionQueues.get(channelId) || Promise.resolve();
+    const safePrevious = previous.catch(() => {});
+    const next = safePrevious.then(() => task());
+    const finalize = next.finally(() => {
+      if (this.channelExecutionQueues.get(channelId) === finalize) {
+        this.channelExecutionQueues.delete(channelId);
+      }
+    });
+    this.channelExecutionQueues.set(channelId, finalize);
+    return next;
   }
 
   async recoverDisplayableResponse(result: ToolResponse, context: PromptExecutionContext): Promise<ToolResponse> {

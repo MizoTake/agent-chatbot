@@ -1255,15 +1255,64 @@ export class ToolCLIClient {
     return value.replace(/'/g, "''");
   }
 
-  private upsertCodexProjectTrust(configContent: string, projectPath: string): string {
+  private normalizeCodexProjectPath(projectPath: string): string {
+    if (process.platform !== 'win32') {
+      return projectPath;
+    }
+    return projectPath.replace(/\//g, '\\').toLowerCase();
+  }
+
+  private removeCodexProjectTrustSections(configContent: string, projectPath: string): string {
     const newline = configContent.includes('\r\n') ? '\r\n' : '\n';
+    const lines = configContent.split(/\r\n|\r|\n/);
+    const normalizedTargetPath = this.normalizeCodexProjectPath(projectPath);
+    const output: string[] = [];
+    let skippingTargetSection = false;
+    const sectionHeaderPattern = /^\[projects\.'((?:''|[^'])*)'\]\s*$/;
+    const isTargetSectionHeader = (line: string): boolean => {
+      const sectionMatch = line.match(sectionHeaderPattern);
+      if (!sectionMatch) {
+        return false;
+      }
+
+      const projectKey = sectionMatch[1].replace(/''/g, "'");
+      return this.normalizeCodexProjectPath(projectKey) === normalizedTargetPath;
+    };
+
+    for (const line of lines) {
+      if (sectionHeaderPattern.test(line)) {
+        skippingTargetSection = isTargetSectionHeader(line);
+        if (skippingTargetSection) {
+          continue;
+        }
+
+        output.push(line);
+        continue;
+      }
+
+      if (!skippingTargetSection) {
+        output.push(line);
+      }
+    }
+
+    const trailingNewline = /(\r\n|\n)$/.test(configContent);
+    const normalizedContent = output.join(newline);
+    if (trailingNewline && !normalizedContent.endsWith(newline)) {
+      return `${normalizedContent}${newline}`;
+    }
+    return normalizedContent;
+  }
+
+  private upsertCodexProjectTrust(configContent: string, projectPath: string): string {
+    const deduplicatedContent = this.removeCodexProjectTrustSections(configContent, projectPath);
+    const newline = deduplicatedContent.includes('\r\n') ? '\r\n' : '\n';
     const escapedProjectPath = this.escapeTomlLiteralString(projectPath);
     const sectionHeader = `[projects.'${escapedProjectPath}']`;
     const trustLine = `trust_level = "trusted"`;
     const sectionPattern = new RegExp(`(^\\[projects\\.'${this.escapeRegex(escapedProjectPath)}'\\]\\r?\\n)([\\s\\S]*?)(?=^\\[|\\Z)`, 'm');
 
-    if (sectionPattern.test(configContent)) {
-      return configContent.replace(sectionPattern, (_match, header: string, body: string) => {
+    if (sectionPattern.test(deduplicatedContent)) {
+      return deduplicatedContent.replace(sectionPattern, (_match, header: string, body: string) => {
         if (/^trust_level\s*=\s*".*?"\s*$/m.test(body)) {
           const updatedBody = body.replace(/^trust_level\s*=\s*".*?"\s*$/m, trustLine);
           return `${header}${updatedBody}`;
@@ -1272,7 +1321,7 @@ export class ToolCLIClient {
       });
     }
 
-    const trimmed = configContent.trimEnd();
+    const trimmed = deduplicatedContent.trimEnd();
     if (!trimmed) {
       return `${sectionHeader}${newline}${trustLine}${newline}`;
     }
@@ -1455,7 +1504,6 @@ export class ToolCLIClient {
 
             resolve({
               response: '',
-              error: 'タイムアウト: 応答時間の制限に達しました。処理はバックグラウンドで継続しています。',
               timedOut: true
             });
           }
