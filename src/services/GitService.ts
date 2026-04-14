@@ -252,19 +252,12 @@ export class GitService {
       fs.mkdirSync(localPath, { recursive: true });
 
       // Initialize empty Git repository
-      const { stdout: initOut, stderr: initErr } = await execAsync('git init', {
+      await execAsync('git init', {
         cwd: localPath,
         maxBuffer: MAX_BUFFER,
         encoding: 'utf8',
         env: { ...process.env, LANG: 'ja_JP.UTF-8' }
       });
-
-      if (initErr && !initOut.includes('hint')) {
-        return {
-          success: false,
-          error: 'Failed to initialize repository: ' + initErr
-        };
-      }
 
       // Configure Git user (required for commits)
       const gitEnv = { ...process.env, LANG: 'ja_JP.UTF-8' };
