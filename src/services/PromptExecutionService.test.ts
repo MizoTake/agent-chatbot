@@ -162,6 +162,33 @@ test('PromptExecutionService.buildBotResponse: コードブロック内の Markd
   }
 });
 
+test('PromptExecutionService.buildBotResponse: Windows の行番号付きローカルリンクを正規化する', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-execution-'));
+
+  try {
+    const service = createService();
+    const buildBotResponse = (service as any).buildBotResponse.bind(service);
+    const filePath = path.join(tempDir, 'build.bat');
+    fs.writeFileSync(filePath, '@echo off\r\necho hello\r\n', 'utf8');
+    const weirdWindowsTarget = `/${filePath.replace(/\\/g, '/')}:7`;
+    const expectedUrl = pathToFileURL(filePath).href;
+
+    const response = buildBotResponse(
+      'codex',
+      {
+        response: `[build.bat](${weirdWindowsTarget})`
+      },
+      false,
+      undefined
+    );
+
+    assert.equal(response.attachments, undefined);
+    assert.equal(response.text, `[build.bat](${expectedUrl}) (L7)\n\n### build.bat (L7)\n\`\`\`bat\n@echo off\r\necho hello\r\n\`\`\``);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('PromptExecutionService.recoverDisplayableResponse: 空応答でもセッションがあれば本文回収を試みる', async () => {
   const calls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
   const storedSessions: Array<{ channelId: string; toolName: string; sessionId: string }> = [];

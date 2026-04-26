@@ -16,8 +16,10 @@ const MARKDOWN_CODE_BLOCK_PATTERN = /(```[\s\S]*?```)/g;
 const TEXT_FILE_PREVIEW_MAX_CHARS = 12000;
 const TEXT_FILE_BINARY_SNIFF_BYTES = 4096;
 const TEXT_FILE_LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  '.bat': 'bat',
   '.c': 'c',
   '.cc': 'cpp',
+  '.cmd': 'bat',
   '.conf': 'ini',
   '.cpp': 'cpp',
   '.cs': 'csharp',
@@ -78,6 +80,12 @@ export interface PromptExecutionContext {
   channelId: string;
   toolName: string;
   workingDirectory?: string;
+}
+
+interface LocalTargetLocation {
+  target: string;
+  line?: number;
+  column?: number;
 }
 
 export class PromptExecutionService {
@@ -414,12 +422,57 @@ export class PromptExecutionService {
   }
 
   private isImageTarget(target: string): boolean {
-    const normalized = this.normalizeMarkdownTarget(target).split('?')[0].split('#')[0].toLowerCase();
+    const normalized = this.normalizeMarkdownTarget(this.stripLocalTargetLocation(target).target).split('?')[0].split('#')[0].toLowerCase();
     return ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.svg'].some(ext => normalized.endsWith(ext));
   }
 
-  private resolveAttachmentPath(target: string, workingDirectory?: string): string | undefined {
+  private stripWindowsDriveRootPrefix(target: string): string {
+    return /^[\\/][A-Za-z]:[\\/]/.test(target) ? target.slice(1) : target;
+  }
+
+  private stripLocalTargetLocation(target: string): LocalTargetLocation {
     const normalizedTarget = this.normalizeMarkdownTarget(target);
+    if (!normalizedTarget || this.isRemoteUrl(normalizedTarget)) {
+      return { target: normalizedTarget };
+    }
+
+    const match = normalizedTarget.match(/^(.*?)(?::(\d+)(?::(\d+))?)$/);
+    if (!match) {
+      return { target: normalizedTarget };
+    }
+
+    const candidate = match[1];
+    if (!candidate) {
+      return { target: normalizedTarget };
+    }
+
+    const normalizedCandidate = this.stripWindowsDriveRootPrefix(candidate);
+    const candidateLower = normalizedCandidate.toLowerCase();
+    const candidateBasename = path.basename(normalizedCandidate).toLowerCase();
+    const candidateExtension = path.extname(candidateLower);
+    const knownTextFile = candidateExtension in TEXT_FILE_LANGUAGE_BY_EXTENSION || candidateBasename in TEXT_FILE_LANGUAGE_BY_BASENAME;
+    const knownImageFile = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.svg'].includes(candidateExtension);
+    if (!knownTextFile && !knownImageFile && !/^file:\/\//i.test(candidate) && !/^[A-Za-z]:[\\/]/.test(normalizedCandidate) && !/^[\\/]/.test(candidate)) {
+      return { target: normalizedTarget };
+    }
+
+    return {
+      target: candidate,
+      line: Number(match[2]),
+      column: match[3] ? Number(match[3]) : undefined
+    };
+  }
+
+  private formatLocationSuffix(location: LocalTargetLocation): string {
+    if (!location.line) {
+      return '';
+    }
+
+    return location.column ? ` (L${location.line}:C${location.column})` : ` (L${location.line})`;
+  }
+
+  private resolveAttachmentPath(target: string, workingDirectory?: string): string | undefined {
+    const normalizedTarget = this.stripWindowsDriveRootPrefix(this.stripLocalTargetLocation(target).target);
     if (!normalizedTarget || this.isRemoteUrl(normalizedTarget)) {
       return undefined;
     }
@@ -448,7 +501,7 @@ export class PromptExecutionService {
   }
 
   private buildMaskedLink(label: string, target: string, workingDirectory?: string): string | undefined {
-    const normalizedTarget = this.normalizeMarkdownTarget(target);
+    const normalizedTarget = this.normalizeMarkdownTarget(this.stripLocalTargetLocation(target).target);
     const safeLabel = this.escapeMaskedLinkLabel(label.trim() || path.basename(normalizedTarget) || 'link');
     if (this.isRemoteUrl(normalizedTarget)) {
       return `[${safeLabel}](${normalizedTarget})`;
@@ -588,18 +641,21 @@ export class PromptExecutionService {
         }
 
         this.addAttachment(attachments, attachment);
-        return this.buildMaskedLink(displayLabel, target, workingDirectory) || displayLabel;
+        const locationSuffix = this.formatLocationSuffix(this.stripLocalTargetLocation(target));
+        return (this.buildMaskedLink(displayLabel, target, workingDirectory) || displayLabel) + locationSuffix;
       });
 
       return textWithoutImageMarkdown.replace(MARKDOWN_LINK_PATTERN, (_match, label: string, rawTarget: string) => {
         const target = this.normalizeMarkdownTarget(rawTarget);
         const displayLabel = label?.trim() || path.basename(target);
+        const location = this.stripLocalTargetLocation(target);
+        const locationSuffix = this.formatLocationSuffix(location);
         if (this.isImageTarget(target)) {
           const attachment = this.createLocalImageAttachment(target, workingDirectory, displayLabel);
           if (attachment) {
             this.addAttachment(attachments, attachment);
           }
-          return this.buildMaskedLink(displayLabel, target, workingDirectory) || displayLabel;
+          return (this.buildMaskedLink(displayLabel, target, workingDirectory) || displayLabel) + locationSuffix;
         }
 
         if (this.isRemoteUrl(target)) {
@@ -611,9 +667,9 @@ export class PromptExecutionService {
           return _match;
         }
 
-        const maskedLink = this.buildMaskedLink(displayLabel, target, workingDirectory) || _match;
+        const maskedLink = (this.buildMaskedLink(displayLabel, target, workingDirectory) || _match) + locationSuffix;
         if (!previewedTextFiles.has(resolvedPath)) {
-          const preview = this.buildTextFilePreview(resolvedPath, displayLabel);
+          const preview = this.buildTextFilePreview(resolvedPath, `${displayLabel}${locationSuffix}`);
           if (preview) {
             textFilePreviews.push(preview);
             previewedTextFiles.add(resolvedPath);
