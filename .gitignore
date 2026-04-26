@@ -68,3 +68,6 @@ temp/
 
 # Local settings
 .claude/settings.local.json
+
+# Orcha generated workspace
+.orcha/agentworkspace/
