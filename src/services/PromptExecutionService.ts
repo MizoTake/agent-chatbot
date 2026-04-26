@@ -80,6 +80,7 @@ export interface PromptExecutionContext {
   channelId: string;
   toolName: string;
   workingDirectory?: string;
+  inputImagePaths?: string[];
 }
 
 interface LocalTargetLocation {
@@ -97,9 +98,12 @@ export class PromptExecutionService {
     private readonly channelContextService: ChannelContextService
   ) {}
 
-  parsePrompt(text: string): ParsedPrompt {
+  parsePrompt(text: string, fallbackPrompt?: string): ParsedPrompt {
     const trimmed = text.trim();
     if (!trimmed) {
+      if (fallbackPrompt !== undefined) {
+        return { prompt: fallbackPrompt };
+      }
       return { prompt: '', error: 'プロンプトを入力してください。' };
     }
 
@@ -111,6 +115,9 @@ export class PromptExecutionService {
     const toolOverride = match[1];
     const prompt = match[2]?.trim();
     if (!prompt) {
+      if (fallbackPrompt !== undefined) {
+        return { prompt: fallbackPrompt, toolOverride };
+      }
       return {
         prompt: '',
         error: '`--tool` 指定時はプロンプトも入力してください。例: `/agent --tool codex 修正案を出して`'
@@ -126,7 +133,7 @@ export class PromptExecutionService {
     notify: (response: BotResponse) => Promise<void>
   ): Promise<BotResponse | null> {
     const toolClient = this.toolRuntimeService.getToolClient();
-    const parsed = this.parsePrompt(message.text);
+    const parsed = this.parsePrompt(message.text, message.attachments?.length ? '' : undefined);
     if (parsed.error) {
       return { text: `❌ ${parsed.error}` };
     }
@@ -166,10 +173,12 @@ export class PromptExecutionService {
       const context: PromptExecutionContext = {
         channelId: message.channelId,
         toolName,
-        workingDirectory: resolvedRepository.repository.localPath
+        workingDirectory: resolvedRepository.repository.localPath,
+        inputImagePaths: this.collectInputImagePaths(message.attachments)
       };
+      const toolPrompt = this.buildPromptWithInputImages(parsed.prompt, message.attachments);
 
-      let result = await toolClient.sendPrompt(parsed.prompt, {
+      let result = await toolClient.sendPrompt(toolPrompt, {
         workingDirectory: context.workingDirectory,
         onBackgroundComplete: async (backgroundResult: ToolResponse) => {
           const backgroundResponse = this.buildBackgroundResponse(context, backgroundResult);
@@ -180,7 +189,8 @@ export class PromptExecutionService {
         skipPermissions: this.toolRuntimeService.isSkipPermissionsEnabled(),
         toolName,
         resumeConversation: this.conversationSessionService.shouldResumeConversation(message.channelId),
-        sessionId: this.conversationSessionService.getSessionId(message.channelId, toolName)
+        sessionId: this.conversationSessionService.getSessionId(message.channelId, toolName),
+        inputImagePaths: context.inputImagePaths
       });
 
       if (!result.error || result.timedOut) {
@@ -202,7 +212,7 @@ export class PromptExecutionService {
       }
 
       if (!this.hasRenderableOutput(result)) {
-        result = await this.attemptFreshTextOnlyRetry(parsed.prompt, context);
+        result = await this.attemptFreshTextOnlyRetry(toolPrompt, context);
       }
 
       if (!this.hasRenderableOutput(result)) {
@@ -356,7 +366,8 @@ export class PromptExecutionService {
         workingDirectory: context.workingDirectory,
         skipPermissions: this.toolRuntimeService.isSkipPermissionsEnabled(),
         toolName: context.toolName,
-        resumeConversation: false
+        resumeConversation: false,
+        inputImagePaths: context.inputImagePaths
       }
     );
 
@@ -626,6 +637,56 @@ export class PromptExecutionService {
       path: resolvedPath,
       altText: altText?.trim() || undefined
     };
+  }
+
+  private collectInputImagePaths(attachments: BotAttachment[] | undefined): string[] {
+    const inputImagePaths: string[] = [];
+    const seenPaths = new Set<string>();
+
+    for (const attachment of attachments || []) {
+      if (attachment.kind !== 'image' || !attachment.path) {
+        continue;
+      }
+
+      const resolvedPath = this.resolveAttachmentPath(attachment.path);
+      if (!resolvedPath || !fs.existsSync(resolvedPath) || seenPaths.has(resolvedPath)) {
+        continue;
+      }
+
+      seenPaths.add(resolvedPath);
+      inputImagePaths.push(resolvedPath);
+    }
+
+    return inputImagePaths;
+  }
+
+  private buildPromptWithInputImages(prompt: string, attachments: BotAttachment[] | undefined): string {
+    const inputImageLines: string[] = [];
+    const seenReferences = new Set<string>();
+
+    for (const attachment of attachments || []) {
+      if (attachment.kind !== 'image') {
+        continue;
+      }
+
+      const resolvedPath = attachment.path ? this.resolveAttachmentPath(attachment.path) : undefined;
+      const reference = resolvedPath || attachment.url;
+      if (!reference || seenReferences.has(reference)) {
+        continue;
+      }
+
+      seenReferences.add(reference);
+      const label = attachment.fileName || attachment.altText || (resolvedPath ? path.basename(resolvedPath) : 'image');
+      inputImageLines.push(`- ${label}: ${reference}`);
+    }
+
+    if (inputImageLines.length === 0) {
+      return prompt;
+    }
+
+    const trimmedPrompt = prompt.trim();
+    const attachmentContext = `添付画像も参照してください。\n${inputImageLines.join('\n')}`;
+    return trimmedPrompt ? `${trimmedPrompt}\n\n${attachmentContext}` : attachmentContext;
   }
 
   private extractMarkdownArtifacts(text: string, workingDirectory?: string): { text: string; attachments: BotAttachment[] } {

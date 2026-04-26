@@ -1,8 +1,9 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 
 import { AttachmentBuilder, Client, GatewayIntentBits, Message, Interaction, TextChannel, DMChannel, Partials } from 'discord.js';
-import { BotAdapter, BotMessage, BotResponse } from '../interfaces/BotInterface';
+import { BotAdapter, BotAttachment, BotMessage, BotResponse } from '../interfaces/BotInterface';
 import { createLogger } from '../utils/logger';
 
 const logger = createLogger('DiscordAdapter');
@@ -13,10 +14,17 @@ const DISCORD_EMBEDS_MAX_COUNT = 10;
 const DISCORD_ATTACHMENTS_MAX_COUNT = 10;
 const DISCORD_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 const DISCORD_CODE_BLOCK_PATTERN = /(```[\s\S]*?```)/g;
+const DISCORD_IMAGE_FILE_NAME_PATTERN = /\.(png|jpe?g|gif|webp|bmp|tiff?|svg)$/i;
 
 interface DiscordImageAttachment {
   path: string;
   fileName: string;
+}
+
+interface DiscordInboundAttachment {
+  url?: string;
+  name?: string | null;
+  contentType?: string | null;
 }
 
 export class DiscordAdapter implements BotAdapter {
@@ -106,6 +114,7 @@ export class DiscordAdapter implements BotAdapter {
 
         if (isDirectMessage || isMention || isGuildChannel) {
           const cleanedText = this.cleanMessageContent(message.content);
+          const incomingAttachments = await this.downloadIncomingImageAttachments(message.attachments.values(), message.channelId, message.id);
 
           // Route /command messages to registered command handlers
           const slashMatch = cleanedText.match(/^\/([a-zA-Z][\w-]*)\s*([\s\S]*)$/);
@@ -121,6 +130,7 @@ export class DiscordAdapter implements BotAdapter {
                 isMention,
                 isCommand: true,
                 commandName,
+                attachments: incomingAttachments.length > 0 ? incomingAttachments : undefined,
               };
 
               if (!this.canSendDiscordRequest() || !this.ensureRestTokenConfigured('messageCreate:command')) {
@@ -159,6 +169,7 @@ export class DiscordAdapter implements BotAdapter {
             isDirectMessage,
             isMention,
             isCommand: false,
+            attachments: incomingAttachments.length > 0 ? incomingAttachments : undefined,
           };
 
           if (this.messageHandler) {
@@ -294,6 +305,95 @@ export class DiscordAdapter implements BotAdapter {
 
   private cleanMessageContent(content: string): string {
     return content.replace(/<@!?\d+>/g, '').trim();
+  }
+
+  private isImageContentType(contentType?: string | null): boolean {
+    return typeof contentType === 'string' && /^image\//i.test(contentType);
+  }
+
+  private isImageFileName(fileName?: string | null): boolean {
+    return typeof fileName === 'string' && DISCORD_IMAGE_FILE_NAME_PATTERN.test(fileName);
+  }
+
+  private inferAttachmentExtension(contentType?: string | null): string {
+    switch ((contentType || '').toLowerCase()) {
+      case 'image/jpeg':
+        return '.jpg';
+      case 'image/png':
+        return '.png';
+      case 'image/gif':
+        return '.gif';
+      case 'image/webp':
+        return '.webp';
+      case 'image/bmp':
+        return '.bmp';
+      case 'image/tiff':
+        return '.tiff';
+      case 'image/svg+xml':
+        return '.svg';
+      default:
+        return '';
+    }
+  }
+
+  private sanitizeAttachmentFileName(fileName?: string | null, contentType?: string | null): string {
+    const rawBaseName = typeof fileName === 'string' && fileName.trim() ? path.basename(fileName.trim()) : 'image';
+    const sanitizedBaseName = rawBaseName.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_');
+    if (path.extname(sanitizedBaseName)) {
+      return sanitizedBaseName;
+    }
+
+    const inferredExtension = this.inferAttachmentExtension(contentType);
+    return inferredExtension ? `${sanitizedBaseName}${inferredExtension}` : sanitizedBaseName;
+  }
+
+  private async downloadIncomingImageAttachments(attachments: Iterable<DiscordInboundAttachment>, channelId: string, messageId: string): Promise<BotAttachment[]> {
+    const savedAttachments: BotAttachment[] = [];
+    const targetDir = path.join(os.tmpdir(), 'agent-chatbot-discord-inputs', channelId, messageId);
+    let index = 0;
+
+    for (const attachment of attachments) {
+      if (!this.isImageContentType(attachment.contentType) && !this.isImageFileName(attachment.name)) {
+        continue;
+      }
+
+      if (!attachment.url) {
+        logger.warn('Skip Discord attachment without URL', { channelId, messageId, fileName: attachment.name });
+        continue;
+      }
+
+      const fileName = this.sanitizeAttachmentFileName(attachment.name, attachment.contentType);
+      const localPath = path.join(targetDir, `${String(++index).padStart(2, '0')}-${fileName}`);
+
+      try {
+        const response = await fetch(attachment.url);
+        if (!response.ok) {
+          logger.warn('Failed to download Discord attachment', { channelId, messageId, fileName, status: response.status });
+          continue;
+        }
+
+        const buffer = Buffer.from(await response.arrayBuffer());
+        fs.mkdirSync(targetDir, { recursive: true });
+        fs.writeFileSync(localPath, buffer);
+        savedAttachments.push({
+          kind: 'image',
+          path: localPath,
+          url: attachment.url,
+          altText: fileName,
+          fileName,
+          contentType: attachment.contentType || undefined
+        });
+      } catch (error) {
+        logger.warn('Failed to persist Discord attachment for tool input', {
+          channelId,
+          messageId,
+          fileName,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
+    return savedAttachments;
   }
 
   private truncateText(text: string | undefined, maxLength: number): string | undefined {

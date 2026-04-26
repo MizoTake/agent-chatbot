@@ -1152,6 +1152,32 @@ test('ToolCLIClient: extraArgs がツール引数の前に挿入される', () =
   }
 });
 
+test('ToolCLIClient: codex の画像入力は exec と exec resume の正しい位置へ挿入される', () => {
+  const client = new ToolCLIClient({}, 'codex', 5000);
+
+  try {
+    const applyInputImageOptions = (client as any).applyInputImageOptions.bind(client);
+    const codexTool = {
+      name: 'codex',
+      command: 'codex',
+      args: ['exec', '{prompt}'],
+      versionArgs: ['--version'],
+      supportsSkipPermissions: false
+    };
+
+    assert.deepEqual(
+      applyInputImageOptions(codexTool, ['--sandbox', 'danger-full-access', 'exec', '--json', '--skip-git-repo-check', 'hello'], ['C:\\temp\\frame.png']),
+      ['--sandbox', 'danger-full-access', 'exec', '--image', 'C:\\temp\\frame.png', '--json', '--skip-git-repo-check', 'hello']
+    );
+    assert.deepEqual(
+      applyInputImageOptions(codexTool, ['--sandbox', 'danger-full-access', 'exec', 'resume', '--last', 'hello'], ['C:\\temp\\frame.png']),
+      ['--sandbox', 'danger-full-access', 'exec', 'resume', '--image', 'C:\\temp\\frame.png', '--last', 'hello']
+    );
+  } finally {
+    client.cleanup();
+  }
+});
+
 test('parseToolOutput: opencode — toolCallsOnly フラグが設定される', () => {
   const client = new ToolCLIClient({}, 'claude', 5000);
   const parse = (client as any).parseToolOutput.bind(client);

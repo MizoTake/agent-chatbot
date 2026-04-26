@@ -8,8 +8,9 @@
     "build": "npm run clean && node ./node_modules/typescript/bin/tsc",
     "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
-    "check": "npm run typecheck && npm test",
-    "test": "npm run build && node --test \"dist/**/*.test.js\""
+    "check": "npm run typecheck && npm run build && npm run test:compiled",
+    "test": "npm run build && npm run test:compiled",
+    "test:compiled": "node ./scripts/run-tests.js"
   },
   "keywords": [
     "claude",

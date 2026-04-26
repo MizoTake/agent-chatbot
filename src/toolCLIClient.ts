@@ -40,6 +40,7 @@ export interface ToolOptions {
   toolName?: string;
   resumeConversation?: boolean;
   sessionId?: string;
+  inputImagePaths?: string[];
   /** Extra CLI arguments inserted before the tool's configured args. */
   extraArgs?: string[];
 }
@@ -343,6 +344,29 @@ export class ToolCLIClient {
     }
 
     return args;
+  }
+
+  private applyInputImageOptions(tool: ToolInfo, args: string[], inputImagePaths: string[] | undefined): string[] {
+    if (!inputImagePaths || inputImagePaths.length === 0) {
+      return args;
+    }
+
+    if (tool.name !== 'codex') {
+      return args;
+    }
+
+    const imageArgs = inputImagePaths.flatMap(inputImagePath => ['--image', inputImagePath]);
+    const resumeIndex = args.indexOf('resume');
+    if (resumeIndex >= 0) {
+      return [...args.slice(0, resumeIndex + 1), ...imageArgs, ...args.slice(resumeIndex + 1)];
+    }
+
+    const execIndex = args.indexOf('exec');
+    if (execIndex >= 0) {
+      return [...args.slice(0, execIndex + 1), ...imageArgs, ...args.slice(execIndex + 1)];
+    }
+
+    return [...imageArgs, ...args];
   }
 
   private isResumeUnavailableError(message: string): boolean {
@@ -1561,6 +1585,7 @@ export class ToolCLIClient {
       toolName,
       resumeConversation = false,
       sessionId,
+      inputImagePaths,
       extraArgs
     } = options;
 
@@ -1583,6 +1608,7 @@ export class ToolCLIClient {
         args = [...extraArgs, ...args];
       }
       args = this.applyResumeOption(tool, args, resumeConversation, sessionId);
+      args = this.applyInputImageOptions(tool, args, inputImagePaths);
 
       const forceAllowRoot = process.env.CLAUDE_FORCE_ALLOW_ROOT === 'true';
       const runAsUser = process.env.CLAUDE_RUN_AS_USER;

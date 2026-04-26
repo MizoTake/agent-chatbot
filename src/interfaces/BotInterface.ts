@@ -6,6 +6,7 @@ export interface BotMessage {
   isMention: boolean;
   isCommand: boolean;
   commandName?: string;
+  attachments?: BotAttachment[];
 }
 
 export interface BotAttachment {
@@ -13,6 +14,8 @@ export interface BotAttachment {
   path?: string;
   url?: string;
   altText?: string;
+  fileName?: string;
+  contentType?: string;
 }
 
 export interface BotResponse {

@@ -44,6 +44,13 @@ test('PromptExecutionService.parsePrompt: 空文字はエラーを返す', () =>
   assert.equal(result.prompt, '');
 });
 
+test('PromptExecutionService.parsePrompt: fallback があれば空文字でも処理を継続する', () => {
+  const service = createService();
+  const result = service.parsePrompt('', '');
+  assert.equal(result.error, undefined);
+  assert.equal(result.prompt, '');
+});
+
 test('PromptExecutionService.parsePrompt: 通常テキストはそのまま返す', () => {
   const service = createService();
   const result = service.parsePrompt('Hello, world!');
@@ -384,4 +391,75 @@ test('PromptExecutionService.attemptFreshTextOnlyRetry: 新規セッションで
       sessionId: 'ses_fresh'
     }
   ]);
+});
+
+test('PromptExecutionService.executePromptRequest: 画像のみの入力でも Codex に画像パスを渡す', async () => {
+  const capturedCalls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-execution-input-image-'));
+  const imagePath = path.join(tempDir, 'frame.png');
+  fs.writeFileSync(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+  const toolClient = {
+    hasTool: () => true,
+    sendPrompt: async (prompt: string, options: Record<string, unknown>) => {
+      capturedCalls.push({ prompt, options });
+      return { response: '画像を確認しました。' };
+    }
+  };
+  const toolRuntimeService = {
+    getToolClient: () => toolClient,
+    ensureToolReady: async () => undefined,
+    isSkipPermissionsEnabled: () => false
+  };
+  const conversationSessionService = {
+    shouldResumeConversation: () => false,
+    getSessionId: () => undefined,
+    markConversationActive: () => {},
+    storeSessionId: () => {},
+    clearConversationState: () => 0
+  };
+  const channelContextService = {
+    resolveChannelRepository: async () => ({
+      repository: {
+        localPath: tempDir
+      }
+    }),
+    getEffectiveToolName: () => 'codex'
+  };
+  const service = new PromptExecutionService(
+    toolRuntimeService as any,
+    conversationSessionService as any,
+    channelContextService as any
+  );
+
+  try {
+    const response = await service.executePromptRequest(
+      {
+        text: '',
+        channelId: 'C001',
+        userId: 'U001',
+        isDirectMessage: true,
+        isMention: false,
+        isCommand: false,
+        attachments: [
+          {
+            kind: 'image',
+            path: imagePath,
+            fileName: 'frame.png'
+          }
+        ]
+      },
+      false,
+      async () => {}
+    );
+
+    assert.equal(capturedCalls.length, 1);
+    assert.match(capturedCalls[0].prompt, /添付画像も参照してください。/);
+    assert.match(capturedCalls[0].prompt, /frame\.png/);
+    assert.match(capturedCalls[0].prompt, new RegExp(imagePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.deepEqual(capturedCalls[0].options.inputImagePaths, [imagePath]);
+    assert.equal(response?.text, '画像を確認しました。');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
