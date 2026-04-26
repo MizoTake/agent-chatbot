@@ -1,4 +1,5 @@
 import { BotAdapter, BotMessage, BotResponse } from '../interfaces/BotInterface';
+import { ConfigValidator } from '../config/validator';
 import { createLogger } from '../utils/logger';
 import { ChannelContextService } from './ChannelContextService';
 import { ConversationSessionService } from './ConversationSessionService';
@@ -477,17 +478,9 @@ export class BotCommandService {
       };
     }
 
-    if (/^https?:\/\//.test(args)) {
+    if (ConfigValidator.validateRepositoryUrl(rawArgs)) {
       const repositoryUrl = rawArgs.trim();
-      let tempRepoName: string | null = null;
-      try {
-        const tempUrl = new URL(repositoryUrl);
-        const pathParts = tempUrl.pathname.replace(/\.git$/, '').split('/');
-        const lastPart = pathParts[pathParts.length - 1];
-        if (lastPart) {
-          tempRepoName = lastPart.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
-        }
-      } catch {}
+      const tempRepoName = this.extractRepositoryName(repositoryUrl);
 
       if (tempRepoName && this.channelContextService.isRepositoryNameExists(tempRepoName)) {
         return {
@@ -530,5 +523,16 @@ export class BotCommandService {
         }
       ]
     };
+  }
+
+  private extractRepositoryName(repositoryUrl: string): string | null {
+    const normalizedUrl = repositoryUrl.trim().replace(/\/+$/, '');
+    const match = normalizedUrl.match(/([^/:]+?)(?:\.git)?$/);
+    if (!match?.[1]) {
+      return null;
+    }
+
+    const repositoryName = match[1].toLowerCase().replace(/[^a-z0-9-_]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+    return repositoryName || null;
   }
 }

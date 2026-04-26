@@ -67,11 +67,28 @@ getAllChannelRepositories(): Record<string, ChannelRepository> {
     }
 
     for (const repo of this.data.values()) {
-      if (repo.repositoryUrl.toLowerCase().endsWith(normalizedInput)) {
+      if (this.extractNormalizedRepositoryName(repo) === normalizedInput) {
         return true;
       }
     }
 
     return false;
+  }
+
+  private extractNormalizedRepositoryName(repository: ChannelRepository): string | null {
+    const repositoryUrl = repository.repositoryUrl.trim();
+    const localPrefix = 'local://';
+    if (repositoryUrl.toLowerCase().startsWith(localPrefix)) {
+      return repositoryUrl.slice(localPrefix.length).trim().toLowerCase();
+    }
+
+    const normalizedUrl = repositoryUrl.replace(/\/+$/, '');
+    const match = normalizedUrl.match(/([^/:]+?)(?:\.git)?$/);
+    if (!match?.[1]) {
+      return null;
+    }
+
+    const normalizedRepositoryName = match[1].toLowerCase().replace(/[^a-z0-9\-_]/g, '-').replace(/-+/g, '-').replace(/^-+|-+$/g, '');
+    return normalizedRepositoryName || null;
   }
 }

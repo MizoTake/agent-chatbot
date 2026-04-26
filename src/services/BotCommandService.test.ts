@@ -31,6 +31,8 @@ function createService(overrides: {
   clearConversationState?: (channelId: string) => number;
   setChannelTool?: (channelId: string, toolName: string) => void;
   buildUnknownToolResponse?: (toolName: string) => any;
+  isRepositoryNameExists?: (repositoryName: string) => boolean;
+  cloneRepository?: (channelId: string, repositoryUrl: string) => Promise<any>;
 } = {}): BotCommandService {
   const toolClient = {
     listTools: () => [{ name: 'claude', command: 'claude' }, { name: 'codex', command: 'codex' }],
@@ -66,9 +68,9 @@ function createService(overrides: {
       getRepositoryStatus: async () => ({ success: true, status: 'clean' }),
       deleteChannelRepository: () => true,
       getAllChannelRepositories: () => ({}),
-      isRepositoryNameExists: () => false,
+      isRepositoryNameExists: overrides.isRepositoryNameExists || (() => false),
       createRepository: async () => ({ success: true, localPath: 'repo' }),
-      cloneRepository: async () => ({ success: true, localPath: 'repo' })
+      cloneRepository: overrides.cloneRepository || (async () => ({ success: true, localPath: 'repo' }))
     } as any,
     {
       clearConversationState: overrides.clearConversationState || (() => 1)
@@ -182,6 +184,27 @@ test('BotCommandService: /agent-tool use で未知ツールなら unknown respon
   });
 
   assert.equal(response?.text, 'unknown:gemini');
+});
+
+test('BotCommandService: /agent-repo は SSH URL をクローン対象として受け付ける', async () => {
+  const bot = createFakeBot();
+  const cloneCalls: Array<{ channelId: string; repositoryUrl: string }> = [];
+  const service = createService({
+    cloneRepository: async (channelId, repositoryUrl) => {
+      cloneCalls.push({ channelId, repositoryUrl });
+      return { success: true, localPath: 'repo' };
+    }
+  });
+  service.register(bot as any);
+
+  const handler = bot.commandHandlers.get('agent-repo');
+  const response = await handler?.({
+    text: 'git@github.com:example/repo.git',
+    channelId: 'C001'
+  });
+
+  assert.match(response?.text || '', /クローン/);
+  assert.deepEqual(cloneCalls, [{ channelId: 'C001', repositoryUrl: 'git@github.com:example/repo.git' }]);
 });
 
 test('BotCommandService: /agent-clear は conversation state の件数を表示する', async () => {
