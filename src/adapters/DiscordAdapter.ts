@@ -12,6 +12,7 @@ const DISCORD_EMBED_DESCRIPTION_MAX_LENGTH = 4096;
 const DISCORD_EMBEDS_MAX_COUNT = 10;
 const DISCORD_ATTACHMENTS_MAX_COUNT = 10;
 const DISCORD_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+const DISCORD_CODE_BLOCK_PATTERN = /(```[\s\S]*?```)/g;
 
 interface DiscordImageAttachment {
   path: string;
@@ -390,7 +391,9 @@ export class DiscordAdapter implements BotAdapter {
       }
 
       const description = this.truncateText(
-        typeof block.text.text === 'string' ? block.text.text : '',
+        typeof block.text.text === 'string'
+          ? this.normalizeDiscordMarkdown(block.text.text)
+          : '',
         DISCORD_EMBED_DESCRIPTION_MAX_LENGTH
       );
 
@@ -413,7 +416,7 @@ export class DiscordAdapter implements BotAdapter {
       return { embeds };
     }
 
-    const content = this.truncateText(response.text?.trim() || response.text, DISCORD_CONTENT_MAX_LENGTH);
+    const content = this.truncateText(this.normalizeDiscordMarkdown(response.text?.trim() || response.text || ''), DISCORD_CONTENT_MAX_LENGTH);
     return { content: content || '(empty response)' };
   }
 
@@ -545,6 +548,23 @@ export class DiscordAdapter implements BotAdapter {
     logger.info('Discord bot stopped');
   }
 
+  private normalizeDiscordMarkdownSegment(text: string): string {
+    return text
+      .replace(/(^|\n)([ \t]*)•\s+/g, '$1$2- ')
+      .replace(/(^|\n)([ \t]*)\*([^*\n]*[:：])\*/g, '$1$2**$3**');
+  }
+
+  private normalizeDiscordMarkdown(text: string): string {
+    if (!text) {
+      return text;
+    }
+
+    return text
+      .split(DISCORD_CODE_BLOCK_PATTERN)
+      .map((segment, index) => index % 2 === 1 ? segment : this.normalizeDiscordMarkdownSegment(segment))
+      .join('');
+  }
+
   /**
    * Extract the full text content from a BotResponse (blocks or text).
    */
@@ -552,12 +572,12 @@ export class DiscordAdapter implements BotAdapter {
     if (response.blocks && response.blocks.length > 0) {
       const texts = response.blocks
         .filter((b: any) => b?.type === 'section' && typeof b?.text?.text === 'string')
-        .map((b: any) => b.text.text);
+        .map((b: any) => this.normalizeDiscordMarkdown(b.text.text));
       if (texts.length > 0) {
         return texts.join('\n\n');
       }
     }
-    return response.text || '';
+    return this.normalizeDiscordMarkdown(response.text || '');
   }
 
   private resolveImageAttachments(response: BotResponse): { attachments: DiscordImageAttachment[]; warnings: string[] } {

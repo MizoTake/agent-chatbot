@@ -80,6 +80,31 @@ test('PromptExecutionService.buildBotResponse: Markdown のローカル画像を
   assert.equal(response.blocks[0].text.text, '生成しました');
 });
 
+test('PromptExecutionService.buildBotResponse: Markdown の画像リンクを本文を保ったまま添付に変換する', () => {
+  const service = createService();
+  const buildBotResponse = (service as any).buildBotResponse.bind(service);
+  const imagePath = path.resolve('repositories/sample/screenshots/diagnostic_frame001.png').replace(/\\/g, '/');
+
+  const response = buildBotResponse(
+    'codex',
+    {
+      response: `スクリーンショットは [diagnostic_frame001.png](${imagePath}) です。`
+    },
+    false,
+    undefined
+  );
+
+  assert.equal(response.text, 'スクリーンショットは diagnostic_frame001.png です。');
+  assert.deepEqual(response.attachments, [
+    {
+      kind: 'image',
+      path: path.normalize(imagePath),
+      altText: 'diagnostic_frame001.png'
+    }
+  ]);
+  assert.equal(response.blocks[0].text.text, 'スクリーンショットは diagnostic_frame001.png です。');
+});
+
 test('PromptExecutionService.recoverDisplayableResponse: 空応答でもセッションがあれば本文回収を試みる', async () => {
   const calls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
   const storedSessions: Array<{ channelId: string; toolName: string; sessionId: string }> = [];

@@ -10,6 +10,7 @@ import { ToolRuntimeService } from './ToolRuntimeService';
 
 const logger = createLogger('PromptExecutionService');
 const IMAGE_MARKDOWN_PATTERN = /!\[([^\]]*)\]\((<[^>]+>|[^)]+)\)/g;
+const MARKDOWN_LINK_PATTERN = /\[([^\]]+)\]\((<[^>]+>|[^)]+)\)/g;
 
 export interface ParsedPrompt {
   prompt: string;
@@ -427,9 +428,27 @@ export class PromptExecutionService {
     return attachments;
   }
 
+  private createLocalImageAttachment(target: string, workingDirectory?: string, altText?: string): BotAttachment | undefined {
+    const normalizedTarget = this.normalizeMarkdownTarget(target);
+    if (!this.isImageTarget(normalizedTarget) || this.isRemoteUrl(normalizedTarget)) {
+      return undefined;
+    }
+
+    const resolvedPath = this.resolveAttachmentPath(normalizedTarget, workingDirectory);
+    if (!resolvedPath) {
+      return undefined;
+    }
+
+    return {
+      kind: 'image',
+      path: resolvedPath,
+      altText: altText?.trim() || undefined
+    };
+  }
+
   private extractMarkdownImageAttachments(text: string, workingDirectory?: string): { text: string; attachments: BotAttachment[] } {
     const attachments: BotAttachment[] = [];
-    const sanitizedText = text.replace(IMAGE_MARKDOWN_PATTERN, (_match, altText: string, rawTarget: string) => {
+    const textWithoutImageMarkdown = text.replace(IMAGE_MARKDOWN_PATTERN, (_match, altText: string, rawTarget: string) => {
       const target = this.normalizeMarkdownTarget(rawTarget);
       if (!this.isImageTarget(target)) {
         return _match;
@@ -439,17 +458,27 @@ export class PromptExecutionService {
         return target;
       }
 
-      const resolvedPath = this.resolveAttachmentPath(target, workingDirectory);
-      if (!resolvedPath) {
+      const attachment = this.createLocalImageAttachment(target, workingDirectory, altText);
+      if (!attachment) {
         return _match;
       }
 
-      this.addAttachment(attachments, {
-        kind: 'image',
-        path: resolvedPath,
-        altText: altText?.trim() || undefined
-      });
+      this.addAttachment(attachments, attachment);
       return '';
+    });
+    const sanitizedText = textWithoutImageMarkdown.replace(MARKDOWN_LINK_PATTERN, (_match, label: string, rawTarget: string) => {
+      const target = this.normalizeMarkdownTarget(rawTarget);
+      if (!this.isImageTarget(target)) {
+        return _match;
+      }
+
+      const displayLabel = label?.trim() || path.basename(target);
+      const attachment = this.createLocalImageAttachment(target, workingDirectory, displayLabel);
+      if (attachment) {
+        this.addAttachment(attachments, attachment);
+      }
+
+      return displayLabel;
     }).replace(/\n{3,}/g, '\n\n').trim();
 
     return {
