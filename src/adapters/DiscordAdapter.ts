@@ -1,4 +1,7 @@
-import { Client, GatewayIntentBits, Message, Interaction, TextChannel, DMChannel, Partials } from 'discord.js';
+import * as fs from 'fs';
+import * as path from 'path';
+
+import { AttachmentBuilder, Client, GatewayIntentBits, Message, Interaction, TextChannel, DMChannel, Partials } from 'discord.js';
 import { BotAdapter, BotMessage, BotResponse } from '../interfaces/BotInterface';
 import { createLogger } from '../utils/logger';
 
@@ -7,6 +10,13 @@ const logger = createLogger('DiscordAdapter');
 const DISCORD_CONTENT_MAX_LENGTH = 2000;
 const DISCORD_EMBED_DESCRIPTION_MAX_LENGTH = 4096;
 const DISCORD_EMBEDS_MAX_COUNT = 10;
+const DISCORD_ATTACHMENTS_MAX_COUNT = 10;
+const DISCORD_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+
+interface DiscordImageAttachment {
+  path: string;
+  fileName: string;
+}
 
 export class DiscordAdapter implements BotAdapter {
   private client: Client;
@@ -240,17 +250,15 @@ export class DiscordAdapter implements BotAdapter {
               });
               return;
             }
-            const text = this.extractResponseText(response);
-            const chunks = this.splitText(text);
+            const prepared = this.prepareResponsePayload(response);
 
-            if (chunks.length === 0) {
+            if (prepared.chunks.length === 0 && prepared.files.length === 0) {
               await interaction.editReply({ content: '(empty response)' });
             } else {
-              // First chunk as the deferred reply edit
-              await interaction.editReply({ content: chunks[0] });
+              await interaction.editReply(this.buildDiscordMessageOptions(prepared.chunks[0], prepared.files));
               // Remaining chunks as follow-up messages
-              for (let i = 1; i < chunks.length; i++) {
-                await interaction.followUp({ content: chunks[i] });
+              for (let i = 1; i < prepared.chunks.length; i++) {
+                await interaction.followUp(this.buildDiscordMessageOptions(prepared.chunks[i]));
               }
             }
           }
@@ -552,20 +560,99 @@ export class DiscordAdapter implements BotAdapter {
     return response.text || '';
   }
 
+  private resolveImageAttachments(response: BotResponse): { attachments: DiscordImageAttachment[]; warnings: string[] } {
+    const attachments: DiscordImageAttachment[] = [];
+    const warnings: string[] = [];
+
+    for (const attachment of response.attachments || []) {
+      if (attachment.kind !== 'image') {
+        continue;
+      }
+
+      if (!attachment.path) {
+        if (attachment.url) {
+          warnings.push(`⚠️ Discord ではローカル画像のみ添付できます: ${attachment.url}`);
+        }
+        continue;
+      }
+
+      const normalizedPath = path.resolve(attachment.path);
+      if (!fs.existsSync(normalizedPath)) {
+        warnings.push(`⚠️ 画像ファイルが見つからないため送信をスキップしました: ${path.basename(normalizedPath)}`);
+        continue;
+      }
+
+      const stats = fs.statSync(normalizedPath);
+      if (!stats.isFile()) {
+        warnings.push(`⚠️ 画像ファイルとして扱えないため送信をスキップしました: ${path.basename(normalizedPath)}`);
+        continue;
+      }
+
+      if (stats.size >= DISCORD_IMAGE_MAX_BYTES) {
+        warnings.push(`⚠️ Discord では 5MB 未満の画像のみ送信できます: ${path.basename(normalizedPath)}`);
+        continue;
+      }
+
+      attachments.push({
+        path: normalizedPath,
+        fileName: path.basename(normalizedPath)
+      });
+    }
+
+    if (attachments.length > DISCORD_ATTACHMENTS_MAX_COUNT) {
+      warnings.push(`⚠️ Discord では一度に ${DISCORD_ATTACHMENTS_MAX_COUNT} 件までしか画像を送信できないため、先頭 ${DISCORD_ATTACHMENTS_MAX_COUNT} 件のみ送信しました。`);
+    }
+
+    return {
+      attachments: attachments.slice(0, DISCORD_ATTACHMENTS_MAX_COUNT),
+      warnings
+    };
+  }
+
+  private buildDiscordMessageOptions(content?: string, files: AttachmentBuilder[] = []): { content?: string; files?: AttachmentBuilder[] } {
+    const payload: { content?: string; files?: AttachmentBuilder[] } = {};
+    if (content) {
+      payload.content = content;
+    }
+    if (files.length > 0) {
+      payload.files = files;
+    }
+    return payload;
+  }
+
+  private prepareResponsePayload(response: BotResponse): { chunks: string[]; files: AttachmentBuilder[] } {
+    const responseText = this.extractResponseText(response).trim();
+    const resolvedAttachments = this.resolveImageAttachments(response);
+    const mergedText = [responseText, ...resolvedAttachments.warnings]
+      .filter(part => typeof part === 'string' && part.trim())
+      .join('\n\n');
+
+    return {
+      chunks: mergedText ? this.splitText(mergedText) : [],
+      files: resolvedAttachments.attachments.map(attachment => new AttachmentBuilder(attachment.path, { name: attachment.fileName }))
+    };
+  }
+
   /**
    * Send a response as multiple messages if it exceeds Discord limits.
    */
   private async sendSplitMessage(channelId: string, response: BotResponse): Promise<void> {
-    const text = this.extractResponseText(response);
-    const chunks = this.splitText(text);
+    const prepared = this.prepareResponsePayload(response);
 
     const channel = await this.client.channels.fetch(channelId);
     if (!channel || !(channel instanceof TextChannel || channel instanceof DMChannel)) {
       return;
     }
 
-    for (const chunk of chunks) {
-      await channel.send({ content: chunk });
+    if (prepared.chunks.length === 0 && prepared.files.length === 0) {
+      await channel.send({ content: '(empty response)' });
+      return;
+    }
+
+    await channel.send(this.buildDiscordMessageOptions(prepared.chunks[0], prepared.files));
+
+    for (let i = 1; i < prepared.chunks.length; i++) {
+      await channel.send(this.buildDiscordMessageOptions(prepared.chunks[i]));
     }
   }
 
@@ -574,25 +661,24 @@ export class DiscordAdapter implements BotAdapter {
    * First chunk is a reply; subsequent chunks are follow-up messages.
    */
   private async sendSplitReply(originalMessage: Message, response: BotResponse): Promise<void> {
-    const text = this.extractResponseText(response);
-    const chunks = this.splitText(text);
+    const prepared = this.prepareResponsePayload(response);
 
-    if (chunks.length === 0) {
+    if (prepared.chunks.length === 0 && prepared.files.length === 0) {
       await originalMessage.reply({ content: '(empty response)', allowedMentions: { repliedUser: true } });
       return;
     }
 
     // First chunk as a reply
     await originalMessage.reply({
-      content: chunks[0],
+      ...this.buildDiscordMessageOptions(prepared.chunks[0], prepared.files),
       allowedMentions: { repliedUser: true },
     });
 
     // Remaining chunks as follow-up messages in the same channel
     const channel = originalMessage.channel;
     if ('send' in channel && typeof channel.send === 'function') {
-      for (let i = 1; i < chunks.length; i++) {
-        await channel.send({ content: chunks[i] });
+      for (let i = 1; i < prepared.chunks.length; i++) {
+        await channel.send(this.buildDiscordMessageOptions(prepared.chunks[i]));
       }
     }
   }

@@ -1,11 +1,15 @@
-import { BotMessage, BotResponse } from '../interfaces/BotInterface';
-import { ToolResponse } from '../toolCLIClient';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+import { BotAttachment, BotMessage, BotResponse } from '../interfaces/BotInterface';
+import { ToolAttachment, ToolResponse } from '../toolCLIClient';
 import { createLogger } from '../utils/logger';
 import { ChannelContextService } from './ChannelContextService';
 import { ConversationSessionService } from './ConversationSessionService';
 import { ToolRuntimeService } from './ToolRuntimeService';
 
 const logger = createLogger('PromptExecutionService');
+const IMAGE_MARKDOWN_PATTERN = /!\[([^\]]*)\]\((<[^>]+>|[^)]+)\)/g;
 
 export interface ParsedPrompt {
   prompt: string;
@@ -103,7 +107,7 @@ export class PromptExecutionService {
       let result = await toolClient.sendPrompt(parsed.prompt, {
         workingDirectory: context.workingDirectory,
         onBackgroundComplete: async (backgroundResult: ToolResponse) => {
-          const backgroundResponse = this.buildBackgroundResponse(context.toolName, backgroundResult);
+          const backgroundResponse = this.buildBackgroundResponse(context, backgroundResult);
           if (backgroundResponse) {
             await notify(backgroundResponse);
           }
@@ -122,7 +126,7 @@ export class PromptExecutionService {
       }
 
       result = await this.recoverDisplayableResponse(result, context);
-      if (result.timedOut && !result.response?.trim() && !result.error) {
+      if (result.timedOut && !this.hasRenderableOutput(result) && !result.error) {
         return null;
       }
 
@@ -132,11 +136,11 @@ export class PromptExecutionService {
         };
       }
 
-      if (!result.response?.trim()) {
+      if (!this.hasRenderableOutput(result)) {
         result = await this.attemptFreshTextOnlyRetry(parsed.prompt, context);
       }
 
-      if (!result.response?.trim()) {
+      if (!this.hasRenderableOutput(result)) {
         logger.warn('Empty response from tool', {
           toolName,
           sessionId: result.sessionId,
@@ -148,19 +152,7 @@ export class PromptExecutionService {
         };
       }
 
-      const body = showToolPrefix ? `*${toolName} says:*\n${result.response}` : result.response;
-      return {
-        text: result.response,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: body
-            }
-          }
-        ]
-      };
+      return this.buildBotResponse(toolName, result, showToolPrefix, context.workingDirectory);
     });
   }
 
@@ -196,7 +188,7 @@ export class PromptExecutionService {
     });
 
     while (!result.error && result.sessionId) {
-      if (result.toolCallsOnly && toolOnlyFollowUpCount < maxToolOnlyFollowUps) {
+      if (result.toolCallsOnly && !result.attachments?.length && toolOnlyFollowUpCount < maxToolOnlyFollowUps) {
         toolOnlyFollowUpCount++;
         logger.info('Tool produced only tool calls, sending follow-up prompt', {
           toolName: context.toolName,
@@ -221,7 +213,7 @@ export class PromptExecutionService {
         continue;
       }
 
-      if (!result.response?.trim() && emptyResponseFollowUpCount < maxEmptyResponseFollowUps) {
+      if (!this.hasRenderableOutput(result) && emptyResponseFollowUpCount < maxEmptyResponseFollowUps) {
         emptyResponseFollowUpCount++;
         logger.warn('Tool returned empty displayable response, sending recovery prompt', {
           toolName: context.toolName,
@@ -271,10 +263,10 @@ export class PromptExecutionService {
           this.conversationSessionService.storeSessionId(context.channelId, context.toolName, continuation.sessionId);
         }
 
-        if (continuation.response?.trim()) {
+        if (this.hasRenderableOutput(continuation)) {
           result = {
             ...continuation,
-            response: previousText + continuation.response
+            response: previousText + (continuation.response || '')
           };
           continue;
         }
@@ -348,31 +340,174 @@ export class PromptExecutionService {
     return true;
   }
 
-  private buildBackgroundResponse(toolName: string, result: ToolResponse): BotResponse | null {
-    if (result.response?.trim()) {
-      return {
-        text: result.response,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: result.response
-            }
+  private hasRenderableOutput(result: ToolResponse): boolean {
+    return Boolean(result.response?.trim() || result.attachments?.length);
+  }
+
+  private normalizeMarkdownTarget(target: string): string {
+    const trimmed = target.trim();
+    if (trimmed.startsWith('<') && trimmed.endsWith('>')) {
+      return trimmed.slice(1, -1).trim();
+    }
+    return trimmed;
+  }
+
+  private isRemoteUrl(target: string): boolean {
+    return /^https?:\/\//i.test(target);
+  }
+
+  private isImageTarget(target: string): boolean {
+    const normalized = this.normalizeMarkdownTarget(target).split('?')[0].split('#')[0].toLowerCase();
+    return ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.svg'].some(ext => normalized.endsWith(ext));
+  }
+
+  private resolveAttachmentPath(target: string, workingDirectory?: string): string | undefined {
+    const normalizedTarget = this.normalizeMarkdownTarget(target);
+    if (!normalizedTarget || this.isRemoteUrl(normalizedTarget)) {
+      return undefined;
+    }
+
+    if (/^file:\/\//i.test(normalizedTarget)) {
+      try {
+        return fileURLToPath(normalizedTarget);
+      } catch {
+        return undefined;
+      }
+    }
+
+    if (path.isAbsolute(normalizedTarget)) {
+      return path.normalize(normalizedTarget);
+    }
+
+    if (workingDirectory) {
+      return path.resolve(workingDirectory, normalizedTarget);
+    }
+
+    return path.resolve(normalizedTarget);
+  }
+
+  private addAttachment(attachments: BotAttachment[], attachment: BotAttachment | undefined): void {
+    if (!attachment) {
+      return;
+    }
+
+    if (attachments.some(existing => (
+      (existing.path && attachment.path && existing.path === attachment.path) ||
+      (existing.url && attachment.url && existing.url === attachment.url)
+    ))) {
+      return;
+    }
+
+    attachments.push(attachment);
+  }
+
+  private normalizeToolAttachments(toolAttachments: ToolAttachment[] | undefined, workingDirectory?: string): BotAttachment[] {
+    const attachments: BotAttachment[] = [];
+
+    for (const attachment of toolAttachments || []) {
+      if (attachment.path) {
+        const resolvedPath = this.resolveAttachmentPath(attachment.path, workingDirectory);
+        this.addAttachment(attachments, resolvedPath ? {
+          kind: 'image',
+          path: resolvedPath,
+          altText: attachment.altText
+        } : undefined);
+        continue;
+      }
+
+      if (attachment.url) {
+        this.addAttachment(attachments, {
+          kind: 'image',
+          url: this.normalizeMarkdownTarget(attachment.url),
+          altText: attachment.altText
+        });
+      }
+    }
+
+    return attachments;
+  }
+
+  private extractMarkdownImageAttachments(text: string, workingDirectory?: string): { text: string; attachments: BotAttachment[] } {
+    const attachments: BotAttachment[] = [];
+    const sanitizedText = text.replace(IMAGE_MARKDOWN_PATTERN, (_match, altText: string, rawTarget: string) => {
+      const target = this.normalizeMarkdownTarget(rawTarget);
+      if (!this.isImageTarget(target)) {
+        return _match;
+      }
+
+      if (this.isRemoteUrl(target)) {
+        return target;
+      }
+
+      const resolvedPath = this.resolveAttachmentPath(target, workingDirectory);
+      if (!resolvedPath) {
+        return _match;
+      }
+
+      this.addAttachment(attachments, {
+        kind: 'image',
+        path: resolvedPath,
+        altText: altText?.trim() || undefined
+      });
+      return '';
+    }).replace(/\n{3,}/g, '\n\n').trim();
+
+    return {
+      text: sanitizedText,
+      attachments
+    };
+  }
+
+  private buildBotResponse(
+    toolName: string,
+    result: ToolResponse,
+    showToolPrefix: boolean,
+    workingDirectory?: string
+  ): BotResponse {
+    const normalizedAttachments = this.normalizeToolAttachments(result.attachments, workingDirectory);
+    const extracted = this.extractMarkdownImageAttachments(result.response || '', workingDirectory);
+
+    for (const attachment of extracted.attachments) {
+      this.addAttachment(normalizedAttachments, attachment);
+    }
+
+    const response: BotResponse = {
+      text: extracted.text
+    };
+
+    if (extracted.text) {
+      response.blocks = [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: showToolPrefix ? `*${toolName} says:*\n${extracted.text}` : extracted.text
           }
-        ]
-      };
+        }
+      ];
+    }
+
+    if (normalizedAttachments.length > 0) {
+      response.attachments = normalizedAttachments;
+    }
+
+    return response;
+  }
+
+  private buildBackgroundResponse(context: PromptExecutionContext, result: ToolResponse): BotResponse | null {
+    if (this.hasRenderableOutput(result)) {
+      return this.buildBotResponse(context.toolName, result, false, context.workingDirectory);
     }
 
     if (result.error) {
       return {
-        text: `❌ [${toolName}] ${result.error}`,
+        text: `❌ [${context.toolName}] ${result.error}`,
         blocks: [
           {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: `❌ [${toolName}] ${result.error}`
+              text: `❌ [${context.toolName}] ${result.error}`
             }
           }
         ]

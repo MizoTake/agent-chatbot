@@ -263,6 +263,44 @@ test('parseToolOutput: codex JSONL からアシスタントメッセージを抽
   }
 });
 
+test('parseToolOutput: codex JSONL の画像イベントから添付情報を抽出する', () => {
+  const client = new ToolCLIClient({
+    codex: { command: 'codex', args: ['exec', '{prompt}'], versionArgs: ['--version'] }
+  }, 'codex', 5000);
+
+  try {
+    const parse = (client as any).parseToolOutput.bind(client);
+    const tool = client.listTools().find((t: any) => t.name === 'codex');
+    assert.ok(tool);
+
+    const jsonl = [
+      JSON.stringify({ type: 'thread.started', thread_id: 'tid_image' }),
+      JSON.stringify({
+        type: 'message',
+        role: 'assistant',
+        content: [
+          { type: 'output_text', text: '画像を生成しました。' },
+          { type: 'local_image', path: 'artifacts/chart.png', alt_text: 'chart' }
+        ]
+      }),
+      JSON.stringify({ type: 'turn.completed' })
+    ].join('\n');
+
+    const result = parse(tool, jsonl);
+    assert.equal(result.response, '画像を生成しました。');
+    assert.deepEqual(result.attachments, [
+      {
+        kind: 'image',
+        path: 'artifacts/chart.png',
+        altText: 'chart'
+      }
+    ]);
+    assert.equal(result.sessionId, 'tid_image');
+  } finally {
+    client.cleanup();
+  }
+});
+
 test('parseToolOutput: codex JSONL でツール実行のみの場合は toolCallsOnly を返す', () => {
   const client = new ToolCLIClient({
     codex: { command: 'codex', args: ['exec', '{prompt}'], versionArgs: ['--version'] }

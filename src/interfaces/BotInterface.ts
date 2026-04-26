@@ -8,9 +8,17 @@ export interface BotMessage {
   commandName?: string;
 }
 
+export interface BotAttachment {
+  kind: 'image';
+  path?: string;
+  url?: string;
+  altText?: string;
+}
+
 export interface BotResponse {
   text: string;
   blocks?: any[];
+  attachments?: BotAttachment[];
 }
 
 export interface BotInterface {

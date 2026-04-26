@@ -13,6 +13,14 @@ export interface ToolResponse {
   sessionId?: string;
   /** True when the LLM only performed tool calls without producing text output. */
   toolCallsOnly?: boolean;
+  attachments?: ToolAttachment[];
+}
+
+export interface ToolAttachment {
+  kind: 'image';
+  path?: string;
+  url?: string;
+  altText?: string;
 }
 
 interface BackgroundCallback {
@@ -531,6 +539,128 @@ export class ToolCLIClient {
     return processed.trim();
   }
 
+  private firstString(values: unknown[]): string | undefined {
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+    return undefined;
+  }
+
+  private unwrapMarkdownTarget(target: string): string {
+    const trimmed = target.trim();
+    if (trimmed.startsWith('<') && trimmed.endsWith('>')) {
+      return trimmed.slice(1, -1).trim();
+    }
+    return trimmed;
+  }
+
+  private isImageLikeTarget(target: string): boolean {
+    const normalized = this.unwrapMarkdownTarget(target).split('?')[0].split('#')[0].toLowerCase();
+    return ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.tif', '.tiff', '.svg'].some(ext => normalized.endsWith(ext));
+  }
+
+  private extractImageAttachmentFromObject(value: unknown): ToolAttachment | undefined {
+    if (!value || typeof value !== 'object') {
+      return undefined;
+    }
+
+    const record = value as Record<string, unknown>;
+    const type = typeof record.type === 'string' ? record.type.toLowerCase() : '';
+    const altText = this.firstString([record.alt_text, record.altText, record.alt, record.title, record.name]);
+
+    const pathCandidate = this.firstString([record.path, record.file_path, record.filePath, record.local_path, record.localPath]);
+    if (pathCandidate) {
+      const normalizedPath = this.unwrapMarkdownTarget(pathCandidate);
+      if (type.includes('image') || this.isImageLikeTarget(normalizedPath)) {
+        return {
+          kind: 'image',
+          path: normalizedPath,
+          altText
+        };
+      }
+    }
+
+    const urlCandidate = this.firstString([record.image_url, record.imageUrl, record.url]);
+    if (urlCandidate) {
+      const normalizedUrl = this.unwrapMarkdownTarget(urlCandidate);
+      if (type.includes('image') || this.isImageLikeTarget(normalizedUrl)) {
+        return {
+          kind: 'image',
+          url: normalizedUrl,
+          altText
+        };
+      }
+    }
+
+    return undefined;
+  }
+
+  private addUniqueAttachment(attachments: ToolAttachment[], attachment: ToolAttachment | undefined): void {
+    if (!attachment) {
+      return;
+    }
+
+    const key = attachment.path ? `path:${attachment.path}` : attachment.url ? `url:${attachment.url}` : '';
+    if (!key) {
+      return;
+    }
+
+    if (!attachments.some(existing => (
+      (existing.path && attachment.path && existing.path === attachment.path) ||
+      (existing.url && attachment.url && existing.url === attachment.url)
+    ))) {
+      attachments.push(attachment);
+    }
+  }
+
+  private collectImageAttachments(...values: unknown[]): ToolAttachment[] {
+    const attachments: ToolAttachment[] = [];
+
+    const visit = (value: unknown): void => {
+      if (!value) {
+        return;
+      }
+
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+
+      this.addUniqueAttachment(attachments, this.extractImageAttachmentFromObject(value));
+
+      if (typeof value !== 'object') {
+        return;
+      }
+
+      const record = value as Record<string, unknown>;
+      visit(record.content);
+      visit(record.output);
+      visit(record.item);
+      visit(record.part);
+      if (record.properties && typeof record.properties === 'object') {
+        visit((record.properties as Record<string, unknown>).part);
+      }
+    };
+
+    values.forEach(visit);
+    return attachments;
+  }
+
+  private withAttachments(
+    result: { response: string; sessionId?: string; toolCallsOnly?: boolean },
+    attachments: ToolAttachment[]
+  ): { response: string; sessionId?: string; toolCallsOnly?: boolean; attachments?: ToolAttachment[] } {
+    if (attachments.length === 0) {
+      return result;
+    }
+    return {
+      ...result,
+      attachments
+    };
+  }
+
   /**
    * Parse opencode NDJSON output (--format json).
    * Each line is a JSON event. Text is accumulated from message.part.updated events
@@ -691,7 +821,7 @@ export class ToolCLIClient {
     return undefined;
   }
 
-  private parseOpencodeJsonOutput(stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean } {
+  private parseOpencodeJsonOutput(stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean; attachments?: ToolAttachment[] } {
     const objects = this.extractJsonObjects(stdout);
     const partOrder: string[] = [];
     const partTexts = new Map<string, string>();
@@ -700,6 +830,7 @@ export class ToolCLIClient {
     const unrecognizedEventTypes = new Set<string>();
     // Track tool calls so we can report them when text is empty
     const toolCalls: { tool: string; status?: string }[] = [];
+    const attachments: ToolAttachment[] = [];
     let finishReason: string | undefined;
     let outputTokens = 0;
 
@@ -712,6 +843,10 @@ export class ToolCLIClient {
         // Also capture session_id (snake_case variant)
         if (!sessionId && typeof event.session_id === 'string' && event.session_id) {
           sessionId = event.session_id;
+        }
+
+        for (const attachment of this.collectImageAttachments(event.content, event.output, event.part, event.properties?.part, event.item)) {
+          this.addUniqueAttachment(attachments, attachment);
         }
 
         const eventType = typeof event.type === 'string' ? event.type : '';
@@ -778,7 +913,7 @@ export class ToolCLIClient {
       const joined = partOrder.map(id => partTexts.get(id) ?? '').join('');
       const processed = this.processOutput(joined);
       if (processed) {
-        return { response: processed, sessionId };
+        return this.withAttachments({ response: processed, sessionId }, attachments);
       }
       // processOutput stripped all content (e.g. only special tokens or whitespace).
       // Return the raw joined text so the user receives the actual LLM output.
@@ -792,7 +927,7 @@ export class ToolCLIClient {
           rawLength: joined.length,
           preview: joined.slice(0, 200)
         });
-        return { response: rawTrimmed, sessionId };
+        return this.withAttachments({ response: rawTrimmed, sessionId }, attachments);
       }
     }
 
@@ -810,7 +945,8 @@ export class ToolCLIClient {
       return {
         response: `🔧 ツールを実行しました（${toolSummary}）が、テキスト応答はありませんでした。`,
         sessionId,
-        toolCallsOnly: true
+        toolCallsOnly: true,
+        attachments: attachments.length > 0 ? attachments : undefined
       };
     }
 
@@ -818,7 +954,7 @@ export class ToolCLIClient {
     // Avoid returning the NDJSON itself as the response.
     const fallback = this.processOutput(stdout);
     if (fallback && !fallback.trimStart().startsWith('{')) {
-      return { response: fallback, sessionId };
+      return this.withAttachments({ response: fallback, sessionId }, attachments);
     }
 
     // Log the event types we DID see, plus a preview of raw stdout for debugging.
@@ -838,7 +974,7 @@ export class ToolCLIClient {
       stdoutPreview: stdout.slice(0, 500),
       sessionId
     });
-    return { response: '', sessionId };
+    return this.withAttachments({ response: '', sessionId }, attachments);
   }
 
   /**
@@ -848,22 +984,24 @@ export class ToolCLIClient {
    * For opencode (--format json) the output is NDJSON with sessionID on each event.
    * Returns the display text and optional session_id.
    */
-  private parseClaudeOutput(stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean } | undefined {
+  private parseClaudeOutput(stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean; attachments?: ToolAttachment[] } | undefined {
     const trimmed = stdout.trim();
     if (!trimmed) {
       return undefined;
     }
 
-    const buildClaudeResponse = (objects: any[]): { response: string; sessionId?: string; toolCallsOnly?: boolean } | undefined => {
+    const buildClaudeResponse = (objects: any[]): { response: string; sessionId?: string; toolCallsOnly?: boolean; attachments?: ToolAttachment[] } | undefined => {
       let sessionId: string | undefined;
       const textParts: string[] = [];
       const toolNames: string[] = [];
+      const attachments: ToolAttachment[] = [];
 
       const visitContentArray = (content: any[]): void => {
         for (const item of content) {
           if (!item || typeof item !== 'object') {
             continue;
           }
+          this.addUniqueAttachment(attachments, this.extractImageAttachmentFromObject(item));
           if (typeof item.text === 'string') {
             textParts.push(item.text);
           }
@@ -915,14 +1053,18 @@ export class ToolCLIClient {
             textParts.push(extracted.text);
           }
         }
+
+        for (const attachment of this.collectImageAttachments(parsed.content, parsed.message?.content, parsed.messages)) {
+          this.addUniqueAttachment(attachments, attachment);
+        }
       }
 
       const processedText = this.processOutput(textParts.join(''));
       if (processedText) {
-        return {
+        return this.withAttachments({
           response: processedText,
           sessionId
-        };
+        }, attachments);
       }
 
       if (toolNames.length > 0) {
@@ -934,11 +1076,14 @@ export class ToolCLIClient {
         return {
           response: `🔧 ツールを実行しました（${uniqueTools.map(t => `\`${t}\``).join(', ')}）が、テキスト応答はありませんでした。`,
           sessionId,
-          toolCallsOnly: true
+          toolCallsOnly: true,
+          attachments: attachments.length > 0 ? attachments : undefined
         };
       }
 
-      return sessionId || textParts.length > 0 ? { response: processedText, sessionId } : undefined;
+      return sessionId || textParts.length > 0 || attachments.length > 0
+        ? this.withAttachments({ response: processedText, sessionId }, attachments)
+        : undefined;
     };
 
     try {
@@ -969,11 +1114,12 @@ export class ToolCLIClient {
    * exec (tool calls), turn.completed, etc.
    * We extract assistant message content and thread_id as session ID.
    */
-  private parseCodexJsonOutput(stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean } {
+  private parseCodexJsonOutput(stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean; attachments?: ToolAttachment[] } {
     const objects = this.extractJsonObjects(stdout);
     let sessionId: string | undefined;
     const textParts: string[] = [];
     const toolCalls: string[] = [];
+    const attachments: ToolAttachment[] = [];
     let lastError: string | undefined;
 
     for (const raw of objects) {
@@ -989,6 +1135,10 @@ export class ToolCLIClient {
         }
 
         const eventType = typeof event.type === 'string' ? event.type : '';
+
+        for (const attachment of this.collectImageAttachments(event.content, event.item, event.output)) {
+          this.addUniqueAttachment(attachments, attachment);
+        }
 
         // Error events (connection failures, turn failures, etc.)
         if (eventType === 'error' || eventType === 'turn.failed') {
@@ -1053,7 +1203,7 @@ export class ToolCLIClient {
     const joined = textParts.join('\n');
     const processed = this.processOutput(joined);
     if (processed) {
-      return { response: processed, sessionId };
+      return this.withAttachments({ response: processed, sessionId }, attachments);
     }
 
     if (toolCalls.length > 0) {
@@ -1062,20 +1212,21 @@ export class ToolCLIClient {
       return {
         response: `🔧 ツールを実行しました（${uniqueTools.map(t => `\`${t}\``).join(', ')}）が、テキスト応答はありませんでした。`,
         sessionId,
-        toolCallsOnly: true
+        toolCallsOnly: true,
+        attachments: attachments.length > 0 ? attachments : undefined
       };
     }
 
     // If we have an error from the JSONL stream, report it
     if (lastError) {
       logger.warn('codex JSONL stream reported error', { error: lastError, sessionId });
-      return { response: `⚠️ codex エラー: ${lastError}`, sessionId };
+      return this.withAttachments({ response: `⚠️ codex エラー: ${lastError}`, sessionId }, attachments);
     }
 
     // Fallback: try processOutput on raw stdout (non-JSON output)
     const fallback = this.processOutput(stdout);
     if (fallback && !fallback.trimStart().startsWith('{')) {
-      return { response: fallback, sessionId };
+      return this.withAttachments({ response: fallback, sessionId }, attachments);
     }
 
     logger.warn('No text found in codex output', {
@@ -1084,10 +1235,10 @@ export class ToolCLIClient {
       stdoutPreview: stdout.slice(0, 500),
       sessionId
     });
-    return { response: '', sessionId };
+    return this.withAttachments({ response: '', sessionId }, attachments);
   }
 
-  private parseToolOutput(tool: ToolInfo, stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean } {
+  private parseToolOutput(tool: ToolInfo, stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean; attachments?: ToolAttachment[] } {
     if (tool.name === 'claude') {
       const parsedClaude = this.parseClaudeOutput(stdout);
       if (parsedClaude) {
