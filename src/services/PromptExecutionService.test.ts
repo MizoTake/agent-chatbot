@@ -189,6 +189,100 @@ test('PromptExecutionService.buildBotResponse: Windows の行番号付きロー�
   }
 });
 
+test('PromptExecutionService.buildBotResponse: 重複した Windows drive を含む file URL を正規化する', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-execution-'));
+
+  try {
+    const service = createService();
+    const buildBotResponse = (service as any).buildBotResponse.bind(service);
+    const filePath = path.join(tempDir, 'build.bat');
+    fs.writeFileSync(filePath, '@echo off\r\necho hello\r\n', 'utf8');
+    const malformedFileUrl = `file:///C:/${filePath.replace(/\\/g, '/').replace(/^([A-Za-z]):\//, '$1:/')}:7`;
+    const expectedUrl = pathToFileURL(filePath).href;
+
+    const response = buildBotResponse(
+      'codex',
+      {
+        response: `[build.bat](${malformedFileUrl})`
+      },
+      false,
+      undefined
+    );
+
+    assert.equal(response.text, `[build.bat](${expectedUrl}) (L7)\n\n### build.bat (L7)\n\`\`\`bat\n@echo off\r\necho hello\r\n\`\`\``);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('PromptExecutionService.buildBotResponse: 拡張子なしの相対テキストファイルでも行番号付きリンクを展開する', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-execution-'));
+
+  try {
+    const service = createService();
+    const buildBotResponse = (service as any).buildBotResponse.bind(service);
+    const filePath = path.join(tempDir, 'README');
+    fs.writeFileSync(filePath, 'hello\nworld\n', 'utf8');
+    const expectedUrl = pathToFileURL(filePath).href;
+
+    const response = buildBotResponse(
+      'codex',
+      {
+        response: '参照: [README](README:7:3)'
+      },
+      false,
+      tempDir
+    );
+
+    assert.equal(response.text, `参照: [README](${expectedUrl}) (L7:C3)\n\n### README (L7:C3)\n\`\`\`\nhello\nworld\n\`\`\``);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('PromptExecutionService.buildBotResponse: 同じテキストファイルを複数回参照してもプレビューは1回だけ出す', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-execution-'));
+
+  try {
+    const service = createService();
+    const buildBotResponse = (service as any).buildBotResponse.bind(service);
+    const filePath = path.join(tempDir, 'sample.ts');
+    fs.writeFileSync(filePath, 'export const value = 42;\n', 'utf8');
+    const expectedUrl = pathToFileURL(filePath).href;
+
+    const response = buildBotResponse(
+      'codex',
+      {
+        response: `前半は [sample.ts](${filePath.replace(/\\/g, '/')})、後半も [sample.ts](${filePath.replace(/\\/g, '/')}) です。`
+      },
+      false,
+      undefined
+    );
+
+    assert.match(response.text, new RegExp(`\\[sample\\.ts\\]\\(${expectedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\).*\\[sample\\.ts\\]\\(${expectedUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\)`));
+    assert.equal((response.text.match(/### sample\.ts/g) || []).length, 1);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('PromptExecutionService.buildBotResponse: リモートの Markdown リンクは Masked link のまま保持する', () => {
+  const service = createService();
+  const buildBotResponse = (service as any).buildBotResponse.bind(service);
+
+  const response = buildBotResponse(
+    'codex',
+    {
+      response: '詳細は [Qiita](https://qiita.com/xero/items/6026ed007d5d34623a50) を参照してください。'
+    },
+    false,
+    undefined
+  );
+
+  assert.equal(response.attachments, undefined);
+  assert.equal(response.text, '詳細は [Qiita](https://qiita.com/xero/items/6026ed007d5d34623a50) を参照してください。');
+});
+
 test('PromptExecutionService.recoverDisplayableResponse: 空応答でもセッションがあれば本文回収を試みる', async () => {
   const calls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
   const storedSessions: Array<{ channelId: string; toolName: string; sessionId: string }> = [];
