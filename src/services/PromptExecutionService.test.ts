@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { ToolResponse } from '../toolCLIClient';
 import { PromptExecutionContext, PromptExecutionService } from './PromptExecutionService';
@@ -59,6 +62,7 @@ test('PromptExecutionService.buildBotResponse: Markdown のローカル画像を
   const service = createService();
   const buildBotResponse = (service as any).buildBotResponse.bind(service);
   const workingDirectory = path.join(process.cwd(), 'tmp-repo');
+  const expectedUrl = pathToFileURL(path.resolve(workingDirectory, 'artifacts/chart.png')).href;
 
   const response = buildBotResponse(
     'codex',
@@ -69,7 +73,6 @@ test('PromptExecutionService.buildBotResponse: Markdown のローカル画像を
     workingDirectory
   );
 
-  assert.equal(response.text, '生成しました');
   assert.deepEqual(response.attachments, [
     {
       kind: 'image',
@@ -77,13 +80,15 @@ test('PromptExecutionService.buildBotResponse: Markdown のローカル画像を
       altText: 'chart'
     }
   ]);
-  assert.equal(response.blocks[0].text.text, '生成しました');
+  assert.equal(response.text, `生成しました\n\n[chart](${expectedUrl})`);
+  assert.equal(response.blocks[0].text.text, `生成しました\n\n[chart](${expectedUrl})`);
 });
 
 test('PromptExecutionService.buildBotResponse: Markdown の画像リンクを本文を保ったまま添付に変換する', () => {
   const service = createService();
   const buildBotResponse = (service as any).buildBotResponse.bind(service);
   const imagePath = path.resolve('repositories/sample/screenshots/diagnostic_frame001.png').replace(/\\/g, '/');
+  const expectedUrl = pathToFileURL(path.normalize(imagePath)).href;
 
   const response = buildBotResponse(
     'codex',
@@ -94,7 +99,6 @@ test('PromptExecutionService.buildBotResponse: Markdown の画像リンクを本
     undefined
   );
 
-  assert.equal(response.text, 'スクリーンショットは diagnostic_frame001.png です。');
   assert.deepEqual(response.attachments, [
     {
       kind: 'image',
@@ -102,7 +106,60 @@ test('PromptExecutionService.buildBotResponse: Markdown の画像リンクを本
       altText: 'diagnostic_frame001.png'
     }
   ]);
-  assert.equal(response.blocks[0].text.text, 'スクリーンショットは diagnostic_frame001.png です。');
+  assert.equal(response.text, `スクリーンショットは [diagnostic_frame001.png](${expectedUrl}) です。`);
+  assert.equal(response.blocks[0].text.text, `スクリーンショットは [diagnostic_frame001.png](${expectedUrl}) です。`);
+});
+
+test('PromptExecutionService.buildBotResponse: Markdown のローカルテキストファイルを Masked link とコードブロックに変換する', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-execution-'));
+
+  try {
+    const service = createService();
+    const buildBotResponse = (service as any).buildBotResponse.bind(service);
+    const filePath = path.join(tempDir, 'sample.ts');
+    fs.writeFileSync(filePath, 'export const value = 42;\n', 'utf8');
+    const expectedUrl = pathToFileURL(filePath).href;
+
+    const response = buildBotResponse(
+      'codex',
+      {
+        response: `内容は [sample.ts](${filePath.replace(/\\/g, '/')}) を確認してください。`
+      },
+      false,
+      undefined
+    );
+
+    assert.equal(response.attachments, undefined);
+    assert.equal(response.text, `内容は [sample.ts](${expectedUrl}) を確認してください。\n\n### sample.ts\n\`\`\`typescript\nexport const value = 42;\n\`\`\``);
+    assert.equal(response.blocks[0].text.text, `内容は [sample.ts](${expectedUrl}) を確認してください。\n\n### sample.ts\n\`\`\`typescript\nexport const value = 42;\n\`\`\``);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('PromptExecutionService.buildBotResponse: コードブロック内の Markdown リンクは展開しない', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-execution-'));
+
+  try {
+    const service = createService();
+    const buildBotResponse = (service as any).buildBotResponse.bind(service);
+    const filePath = path.join(tempDir, 'sample.ts');
+    fs.writeFileSync(filePath, 'export const value = 42;\n', 'utf8');
+
+    const response = buildBotResponse(
+      'codex',
+      {
+        response: `例:\n\`\`\`md\n[sample.ts](${filePath.replace(/\\/g, '/')})\n\`\`\``
+      },
+      false,
+      undefined
+    );
+
+    assert.equal(response.attachments, undefined);
+    assert.equal(response.text, `例:\n\`\`\`md\n[sample.ts](${filePath.replace(/\\/g, '/')})\n\`\`\``);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test('PromptExecutionService.recoverDisplayableResponse: 空応答でもセッションがあれば本文回収を試みる', async () => {

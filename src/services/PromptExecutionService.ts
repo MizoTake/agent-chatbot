@@ -1,5 +1,6 @@
+import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 import { BotAttachment, BotMessage, BotResponse } from '../interfaces/BotInterface';
 import { ToolAttachment, ToolResponse } from '../toolCLIClient';
@@ -11,6 +12,61 @@ import { ToolRuntimeService } from './ToolRuntimeService';
 const logger = createLogger('PromptExecutionService');
 const IMAGE_MARKDOWN_PATTERN = /!\[([^\]]*)\]\((<[^>]+>|[^)]+)\)/g;
 const MARKDOWN_LINK_PATTERN = /\[([^\]]+)\]\((<[^>]+>|[^)]+)\)/g;
+const MARKDOWN_CODE_BLOCK_PATTERN = /(```[\s\S]*?```)/g;
+const TEXT_FILE_PREVIEW_MAX_CHARS = 12000;
+const TEXT_FILE_BINARY_SNIFF_BYTES = 4096;
+const TEXT_FILE_LANGUAGE_BY_EXTENSION: Record<string, string> = {
+  '.c': 'c',
+  '.cc': 'cpp',
+  '.conf': 'ini',
+  '.cpp': 'cpp',
+  '.cs': 'csharp',
+  '.css': 'css',
+  '.csv': 'csv',
+  '.cts': 'typescript',
+  '.cxx': 'cpp',
+  '.env': 'bash',
+  '.go': 'go',
+  '.gql': 'graphql',
+  '.graphql': 'graphql',
+  '.h': 'c',
+  '.hpp': 'cpp',
+  '.html': 'html',
+  '.ini': 'ini',
+  '.java': 'java',
+  '.js': 'javascript',
+  '.json': 'json',
+  '.jsx': 'jsx',
+  '.kt': 'kotlin',
+  '.less': 'less',
+  '.log': 'log',
+  '.lua': 'lua',
+  '.markdown': 'markdown',
+  '.md': 'markdown',
+  '.mjs': 'javascript',
+  '.mts': 'typescript',
+  '.php': 'php',
+  '.ps1': 'powershell',
+  '.py': 'python',
+  '.rb': 'ruby',
+  '.rs': 'rust',
+  '.sass': 'sass',
+  '.scss': 'scss',
+  '.sh': 'bash',
+  '.sql': 'sql',
+  '.svg': 'xml',
+  '.toml': 'toml',
+  '.ts': 'typescript',
+  '.tsx': 'tsx',
+  '.txt': '',
+  '.xml': 'xml',
+  '.yaml': 'yaml',
+  '.yml': 'yaml'
+};
+const TEXT_FILE_LANGUAGE_BY_BASENAME: Record<string, string> = {
+  'dockerfile': 'dockerfile',
+  'makefile': 'makefile'
+};
 
 export interface ParsedPrompt {
   prompt: string;
@@ -387,6 +443,70 @@ export class PromptExecutionService {
     return path.resolve(normalizedTarget);
   }
 
+  private escapeMaskedLinkLabel(label: string): string {
+    return label.replace(/\\/g, '\\\\').replace(/\]/g, '\\]').replace(/\r?\n/g, ' ');
+  }
+
+  private buildMaskedLink(label: string, target: string, workingDirectory?: string): string | undefined {
+    const normalizedTarget = this.normalizeMarkdownTarget(target);
+    const safeLabel = this.escapeMaskedLinkLabel(label.trim() || path.basename(normalizedTarget) || 'link');
+    if (this.isRemoteUrl(normalizedTarget)) {
+      return `[${safeLabel}](${normalizedTarget})`;
+    }
+
+    const resolvedPath = this.resolveAttachmentPath(normalizedTarget, workingDirectory);
+    if (!resolvedPath) {
+      return undefined;
+    }
+
+    return `[${safeLabel}](${pathToFileURL(resolvedPath).href})`;
+  }
+
+  private inferTextFileLanguage(filePath: string): string | undefined {
+    const basename = path.basename(filePath).toLowerCase();
+    const basenameLanguage = TEXT_FILE_LANGUAGE_BY_BASENAME[basename];
+    if (basenameLanguage !== undefined) {
+      return basenameLanguage || undefined;
+    }
+
+    const extension = path.extname(basename);
+    const extensionLanguage = TEXT_FILE_LANGUAGE_BY_EXTENSION[extension];
+    return extensionLanguage === undefined ? undefined : extensionLanguage || undefined;
+  }
+
+  private isLikelyTextFile(filePath: string, buffer: Buffer): boolean {
+    const language = this.inferTextFileLanguage(filePath);
+    if (language !== undefined || path.extname(filePath).toLowerCase() === '.txt') {
+      return true;
+    }
+
+    return !buffer.subarray(0, Math.min(buffer.length, TEXT_FILE_BINARY_SNIFF_BYTES)).includes(0);
+  }
+
+  private buildTextFilePreview(resolvedPath: string, displayLabel: string): string | undefined {
+    if (!fs.existsSync(resolvedPath)) {
+      return undefined;
+    }
+
+    const stats = fs.statSync(resolvedPath);
+    if (!stats.isFile()) {
+      return undefined;
+    }
+
+    const buffer = fs.readFileSync(resolvedPath);
+    if (!this.isLikelyTextFile(resolvedPath, buffer)) {
+      return undefined;
+    }
+
+    const language = this.inferTextFileLanguage(resolvedPath);
+    const rawContent = buffer.toString('utf8');
+    const truncated = rawContent.length > TEXT_FILE_PREVIEW_MAX_CHARS;
+    const content = truncated ? rawContent.slice(0, TEXT_FILE_PREVIEW_MAX_CHARS) : rawContent;
+    const normalizedContent = content.endsWith('\n') ? content : `${content}\n`;
+    const fence = language ? `\`\`\`${language}` : '```';
+    return `### ${displayLabel}\n${fence}\n${normalizedContent}\`\`\`${truncated ? `\n-# ファイルが長いため先頭 ${TEXT_FILE_PREVIEW_MAX_CHARS} 文字のみ表示しています。` : ''}`;
+  }
+
   private addAttachment(attachments: BotAttachment[], attachment: BotAttachment | undefined): void {
     if (!attachment) {
       return;
@@ -446,43 +566,68 @@ export class PromptExecutionService {
     };
   }
 
-  private extractMarkdownImageAttachments(text: string, workingDirectory?: string): { text: string; attachments: BotAttachment[] } {
+  private extractMarkdownArtifacts(text: string, workingDirectory?: string): { text: string; attachments: BotAttachment[] } {
     const attachments: BotAttachment[] = [];
-    const textWithoutImageMarkdown = text.replace(IMAGE_MARKDOWN_PATTERN, (_match, altText: string, rawTarget: string) => {
-      const target = this.normalizeMarkdownTarget(rawTarget);
-      if (!this.isImageTarget(target)) {
-        return _match;
-      }
+    const textFilePreviews: string[] = [];
+    const previewedTextFiles = new Set<string>();
+    const processMarkdownSegment = (segment: string): string => {
+      const textWithoutImageMarkdown = segment.replace(IMAGE_MARKDOWN_PATTERN, (_match, altText: string, rawTarget: string) => {
+        const target = this.normalizeMarkdownTarget(rawTarget);
+        if (!this.isImageTarget(target)) {
+          return _match;
+        }
 
-      if (this.isRemoteUrl(target)) {
-        return target;
-      }
+        if (this.isRemoteUrl(target)) {
+          return target;
+        }
 
-      const attachment = this.createLocalImageAttachment(target, workingDirectory, altText);
-      if (!attachment) {
-        return _match;
-      }
+        const displayLabel = altText?.trim() || path.basename(target) || 'image';
+        const attachment = this.createLocalImageAttachment(target, workingDirectory, altText);
+        if (!attachment) {
+          return _match;
+        }
 
-      this.addAttachment(attachments, attachment);
-      return '';
-    });
-    const sanitizedText = textWithoutImageMarkdown.replace(MARKDOWN_LINK_PATTERN, (_match, label: string, rawTarget: string) => {
-      const target = this.normalizeMarkdownTarget(rawTarget);
-      if (!this.isImageTarget(target)) {
-        return _match;
-      }
-
-      const displayLabel = label?.trim() || path.basename(target);
-      const attachment = this.createLocalImageAttachment(target, workingDirectory, displayLabel);
-      if (attachment) {
         this.addAttachment(attachments, attachment);
-      }
+        return this.buildMaskedLink(displayLabel, target, workingDirectory) || displayLabel;
+      });
 
-      return displayLabel;
-    }).replace(/\n{3,}/g, '\n\n').trim();
+      return textWithoutImageMarkdown.replace(MARKDOWN_LINK_PATTERN, (_match, label: string, rawTarget: string) => {
+        const target = this.normalizeMarkdownTarget(rawTarget);
+        const displayLabel = label?.trim() || path.basename(target);
+        if (this.isImageTarget(target)) {
+          const attachment = this.createLocalImageAttachment(target, workingDirectory, displayLabel);
+          if (attachment) {
+            this.addAttachment(attachments, attachment);
+          }
+          return this.buildMaskedLink(displayLabel, target, workingDirectory) || displayLabel;
+        }
+
+        if (this.isRemoteUrl(target)) {
+          return this.buildMaskedLink(displayLabel, target, workingDirectory) || _match;
+        }
+
+        const resolvedPath = this.resolveAttachmentPath(target, workingDirectory);
+        if (!resolvedPath) {
+          return _match;
+        }
+
+        const maskedLink = this.buildMaskedLink(displayLabel, target, workingDirectory) || _match;
+        if (!previewedTextFiles.has(resolvedPath)) {
+          const preview = this.buildTextFilePreview(resolvedPath, displayLabel);
+          if (preview) {
+            textFilePreviews.push(preview);
+            previewedTextFiles.add(resolvedPath);
+          }
+        }
+
+        return maskedLink;
+      });
+    };
+    const sanitizedText = text.split(MARKDOWN_CODE_BLOCK_PATTERN).map((segment, index) => index % 2 === 1 ? segment : processMarkdownSegment(segment)).join('');
+    const mergedText = [sanitizedText.trim(), ...textFilePreviews].filter(part => part.trim()).join('\n\n').replace(/\n{3,}/g, '\n\n').trim();
 
     return {
-      text: sanitizedText,
+      text: mergedText,
       attachments
     };
   }
@@ -494,7 +639,7 @@ export class PromptExecutionService {
     workingDirectory?: string
   ): BotResponse {
     const normalizedAttachments = this.normalizeToolAttachments(result.attachments, workingDirectory);
-    const extracted = this.extractMarkdownImageAttachments(result.response || '', workingDirectory);
+    const extracted = this.extractMarkdownArtifacts(result.response || '', workingDirectory);
 
     for (const attachment of extracted.attachments) {
       this.addAttachment(normalizedAttachments, attachment);
