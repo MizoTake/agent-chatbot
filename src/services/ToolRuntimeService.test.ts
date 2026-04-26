@@ -107,6 +107,28 @@ test('ToolRuntimeService: LMStudio を使わないツールは readiness チェ�
   assert.equal(fetchCount, 0);
 });
 
+test('ToolRuntimeService: codex でも LMStudio provider でなければ readiness チェックを素通りする', async () => {
+  let fetchCount = 0;
+  const service = createService({
+    toolClient: {
+      getDefaultToolName: () => 'codex',
+      getToolInfo: () => ({ provider: 'openai' }),
+      cleanup: () => {}
+    },
+    lmStudioService: {
+      fetchModels: async () => {
+        fetchCount++;
+        return [];
+      },
+      warmupModel: async () => true
+    }
+  });
+
+  const actual = await service.ensureToolReady('codex');
+  assert.equal(actual, undefined);
+  assert.equal(fetchCount, 0);
+});
+
 test('ToolRuntimeService: codex でモデル未取得ならエラーを返す', async () => {
   const previous = process.env.LMSTUDIO_URL;
   process.env.LMSTUDIO_URL = 'http://localhost:1234';

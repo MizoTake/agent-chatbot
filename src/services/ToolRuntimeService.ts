@@ -54,7 +54,7 @@ export class ToolRuntimeService {
 
   async ensureToolReady(toolName: string): Promise<string | undefined> {
     const toolInfo = this.toolClient.getToolInfo(toolName);
-    const usesLMStudio = toolInfo?.provider === 'lmstudio' || toolName === 'codex';
+    const usesLMStudio = toolInfo?.provider === 'lmstudio';
     if (!usesLMStudio) {
       return undefined;
     }
@@ -91,7 +91,7 @@ export class ToolRuntimeService {
         : (process.env.OPENCODE_ARGS?.split(' ') || ['run', '--format', 'json', '{prompt}']);
 
       const codexCommand = process.env.CODEX_COMMAND || 'codex';
-      const codexProvider = process.env.CODEX_PROVIDER || 'lmstudio';
+      const codexProvider = process.env.CODEX_PROVIDER?.trim() || undefined;
       let codexModel = process.env.CODEX_MODEL || undefined;
 
       if (!codexModel && codexProvider === 'lmstudio') {
