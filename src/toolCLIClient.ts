@@ -1136,15 +1136,30 @@ export class ToolCLIClient {
    * Parse codex JSONL output (--json).
    * Events include: thread.started, turn.started, message (assistant text),
    * exec (tool calls), turn.completed, etc.
-   * We extract assistant message content and thread_id as session ID.
+   * Codex may emit multiple assistant messages during one turn (commentary + final),
+   * so we keep the last assistant message instead of concatenating every update.
    */
   private parseCodexJsonOutput(stdout: string): { response: string; sessionId?: string; toolCallsOnly?: boolean; attachments?: ToolAttachment[] } {
     const objects = this.extractJsonObjects(stdout);
     let sessionId: string | undefined;
-    const textParts: string[] = [];
+    let lastAssistantText: string | undefined;
+    let provisionalAssistantText: string | undefined;
+    let fallbackText: string | undefined;
     const toolCalls: string[] = [];
     const attachments: ToolAttachment[] = [];
     let lastError: string | undefined;
+    const extractCodexText = (content: unknown): string | undefined => {
+      if (typeof content === 'string' && content.trim()) {
+        return content;
+      }
+      if (!Array.isArray(content)) {
+        return undefined;
+      }
+      const parts = content
+        .map(item => item && typeof item === 'object' && typeof item.text === 'string' ? item.text : '')
+        .filter(part => part.trim());
+      return parts.length > 0 ? parts.join('\n') : undefined;
+    };
 
     for (const raw of objects) {
       try {
@@ -1174,22 +1189,17 @@ export class ToolCLIClient {
 
         // Assistant text messages
         if (eventType === 'message' && event.role === 'assistant') {
-          if (typeof event.content === 'string' && event.content.trim()) {
-            textParts.push(event.content);
-          }
-          if (Array.isArray(event.content)) {
-            for (const item of event.content) {
-              if (item && typeof item === 'object' && typeof item.text === 'string') {
-                textParts.push(item.text);
-              }
-            }
+          const messageText = extractCodexText(event.content);
+          if (messageText) {
+            lastAssistantText = messageText;
           }
         }
 
         // item.completed with agent_message — codex emits this format for assistant responses
         if (eventType === 'item.completed' && event.item) {
-          if (event.item.type === 'agent_message' && typeof event.item.text === 'string' && event.item.text.trim()) {
-            textParts.push(event.item.text);
+          const agentMessageText = this.firstString([event.item.text, extractCodexText(event.item.content)]);
+          if (event.item.type === 'agent_message' && agentMessageText) {
+            lastAssistantText = agentMessageText;
           }
           // item.completed with command_execution results
           if (event.item.type === 'command_execution' && typeof event.item.output === 'string') {
@@ -1201,17 +1211,16 @@ export class ToolCLIClient {
 
         // item.started with agent_message may also carry partial text
         if (eventType === 'item.started' && event.item) {
-          if (event.item.type === 'agent_message' && typeof event.item.text === 'string' && event.item.text.trim()) {
-            // Only use if we haven't seen item.completed for this id yet
-            if (!textParts.length) {
-              textParts.push(event.item.text);
-            }
+          const agentMessageText = this.firstString([event.item.text, extractCodexText(event.item.content)]);
+          if (event.item.type === 'agent_message' && agentMessageText && !lastAssistantText) {
+            provisionalAssistantText = agentMessageText;
           }
         }
 
         // Fallback: any event with a content/text field from assistant
-        if (!textParts.length && typeof event.content === 'string' && event.content.trim() && event.role !== 'user') {
-          textParts.push(event.content);
+        const eventText = extractCodexText(event.content);
+        if (!lastAssistantText && !provisionalAssistantText && eventText && event.role !== 'user') {
+          fallbackText = eventText;
         }
 
         // Tool/exec events
@@ -1224,8 +1233,7 @@ export class ToolCLIClient {
       }
     }
 
-    const joined = textParts.join('\n');
-    const processed = this.processOutput(joined);
+    const processed = this.processOutput(lastAssistantText || provisionalAssistantText || fallbackText || '');
     if (processed) {
       return this.withAttachments({ response: processed, sessionId }, attachments);
     }

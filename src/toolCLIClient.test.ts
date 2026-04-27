@@ -263,6 +263,32 @@ test('parseToolOutput: codex JSONL からアシスタントメッセージを抽
   }
 });
 
+test('parseToolOutput: codex JSONL は途中経過ではなく最後の assistant message を返す', () => {
+  const client = new ToolCLIClient({
+    codex: { command: 'codex', args: ['exec', '{prompt}'], versionArgs: ['--version'] }
+  }, 'codex', 5000);
+
+  try {
+    const parse = (client as any).parseToolOutput.bind(client);
+    const tool = client.listTools().find((t: any) => t.name === 'codex');
+    assert.ok(tool);
+
+    const jsonl = [
+      '{"type":"thread.started","thread_id":"tid_progress"}',
+      '{"type":"message","role":"assistant","content":"まず失敗を再現します。"}',
+      '{"type":"item.completed","item":{"type":"agent_message","text":"次に差分を確認します。"}}',
+      '{"type":"item.completed","item":{"type":"agent_message","text":"修正しました。検証は3件とも成功です。"}}',
+      '{"type":"turn.completed"}'
+    ].join('\n');
+
+    const result = parse(tool, jsonl);
+    assert.equal(result.response, '修正しました。検証は3件とも成功です。');
+    assert.equal(result.sessionId, 'tid_progress');
+  } finally {
+    client.cleanup();
+  }
+});
+
 test('parseToolOutput: codex JSONL の画像イベントから添付情報を抽出する', () => {
   const client = new ToolCLIClient({
     codex: { command: 'codex', args: ['exec', '{prompt}'], versionArgs: ['--version'] }
