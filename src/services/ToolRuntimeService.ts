@@ -1,5 +1,3 @@
-import * as path from 'path';
-
 import { ConfigLoader } from '../config/configLoader';
 import { ToolCLIClient, ToolConfig } from '../toolCLIClient';
 import { createLogger } from '../utils/logger';
@@ -83,12 +81,8 @@ export class ToolRuntimeService {
       const timeout = ConfigLoader.get('claude.timeout', 3600000);
       const maxOutputSize = ConfigLoader.get('claude.maxOutputSize', 10485760);
 
-      const opencodeUseMonitor = (process.env.OPENCODE_USE_MONITOR || 'false').toLowerCase() === 'true';
-      const opencodeCommand = opencodeUseMonitor ? 'bash' : (process.env.OPENCODE_COMMAND || 'opencode-cli');
-      const monitorScriptPath = path.resolve(process.cwd(), 'scripts', 'opencode-monitor.sh');
-      const opencodeArgs = opencodeUseMonitor
-        ? [monitorScriptPath, 'run', '--format', 'json', '{prompt}']
-        : (process.env.OPENCODE_ARGS?.split(' ') || ['run', '--format', 'json', '{prompt}']);
+      const opencodeCommand = process.env.OPENCODE_COMMAND || 'opencode-cli';
+      const opencodeArgs = process.env.OPENCODE_ARGS?.split(' ') || ['run', '--format', 'json', '{prompt}'];
 
       const codexCommand = process.env.CODEX_COMMAND || 'codex';
       const codexProvider = process.env.CODEX_PROVIDER?.trim() || undefined;
@@ -104,9 +98,6 @@ export class ToolRuntimeService {
           logger.warn('LMStudio is not running or has no models loaded — codex will use provider default');
         }
       }
-
-      const taktCommand = process.env.TAKT_COMMAND || 'takt';
-      const taktArgs = process.env.TAKT_ARGS?.split(' ') || ['--pipeline', '--task', '{prompt}'];
 
       const configuredTools = ConfigLoader.get<Record<string, ToolConfig>>('tools.definitions', {});
       const mergedTools: Record<string, ToolConfig> = {
@@ -130,13 +121,6 @@ export class ToolRuntimeService {
           args: opencodeArgs,
           versionArgs: ['--version'],
           description: 'OpenCode CLI',
-          supportsSkipPermissions: false
-        },
-        takt: {
-          command: taktCommand,
-          args: taktArgs,
-          versionArgs: ['--version'],
-          description: 'TAKT Agent Orchestrator',
           supportsSkipPermissions: false
         },
         ...configuredTools

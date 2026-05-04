@@ -1076,79 +1076,6 @@ test('processOutput: 漏洩したシステムプロンプト指示を除去す�
   client.cleanup();
 });
 
-test('ToolCLIClient: ensure --pipeline for takt', () => {
-  const client = new ToolCLIClient({}, 'claude', 5000);
-
-  try {
-    const ensure = (client as any).ensureTaktPipelineMode.bind(client);
-    const taktTool = {
-      name: 'takt',
-      command: 'takt',
-      args: ['--task', '{prompt}'],
-      versionArgs: ['--version'],
-      supportsSkipPermissions: false
-    };
-    const otherTool = {
-      name: 'claude',
-      command: 'claude',
-      args: ['--print', '{prompt}'],
-      versionArgs: ['--version'],
-      supportsSkipPermissions: true
-    };
-
-    // takt: --pipeline が付与される
-    assert.deepEqual(
-      ensure(taktTool, ['--task', 'hello']),
-      ['--pipeline', '--task', 'hello']
-    );
-    // takt: 既に --pipeline がある場合は重複しない
-    assert.deepEqual(
-      ensure(taktTool, ['--pipeline', '--task', 'hello']),
-      ['--pipeline', '--task', 'hello']
-    );
-    // 他のツールには影響しない
-    assert.deepEqual(
-      ensure(otherTool, ['--print', 'hello']),
-      ['--print', 'hello']
-    );
-  } finally {
-    client.cleanup();
-  }
-});
-
-test('ToolCLIClient: takt の --continue resume オプション', () => {
-  const client = new ToolCLIClient({}, 'claude', 5000);
-
-  try {
-    const applyResumeOption = (client as any).applyResumeOption.bind(client);
-    const taktTool = {
-      name: 'takt',
-      command: 'takt',
-      args: ['--pipeline', '--task', '{prompt}'],
-      versionArgs: ['--version'],
-      supportsSkipPermissions: false
-    };
-
-    // takt: resume=true → --continue が付与される
-    assert.deepEqual(
-      applyResumeOption(taktTool, ['--pipeline', '--task', 'hello'], true, undefined),
-      ['--continue', '--pipeline', '--task', 'hello']
-    );
-    // takt: 既に --continue がある場合は重複しない
-    assert.deepEqual(
-      applyResumeOption(taktTool, ['--continue', '--pipeline', '--task', 'hello'], true, undefined),
-      ['--continue', '--pipeline', '--task', 'hello']
-    );
-    // takt: resume=false → --continue は付与されない
-    assert.deepEqual(
-      applyResumeOption(taktTool, ['--pipeline', '--task', 'hello'], false, undefined),
-      ['--pipeline', '--task', 'hello']
-    );
-  } finally {
-    client.cleanup();
-  }
-});
-
 test('ToolCLIClient: extraArgs がツール引数の前に挿入される', () => {
   const client = new ToolCLIClient({}, 'claude', 5000);
 
@@ -1159,20 +1086,20 @@ test('ToolCLIClient: extraArgs がツール引数の前に挿入される', () =
     // and would be interpreted as node flags.
     const buildArgs = (client as any).buildArgs.bind(client);
     const tool = {
-      name: 'takt',
-      command: 'takt',
-      args: ['--pipeline', '--task', '{prompt}'],
+      name: 'sample-tool',
+      command: 'sample-tool',
+      args: ['--task', '{prompt}'],
       versionArgs: ['--version'],
       supportsSkipPermissions: false
     };
 
     const builtArgs = buildArgs(tool, 'hello world');
-    assert.deepEqual(builtArgs, ['--pipeline', '--task', 'hello world']);
+    assert.deepEqual(builtArgs, ['--task', 'hello world']);
 
     // Simulate extraArgs insertion (same logic as executeTool)
-    const extraArgs = ['--auto-pr', '--provider', 'claude'];
+    const extraArgs = ['--verbose', '--profile', 'default'];
     const finalArgs = [...extraArgs, ...builtArgs];
-    assert.deepEqual(finalArgs, ['--auto-pr', '--provider', 'claude', '--pipeline', '--task', 'hello world']);
+    assert.deepEqual(finalArgs, ['--verbose', '--profile', 'default', '--task', 'hello world']);
   } finally {
     client.cleanup();
   }

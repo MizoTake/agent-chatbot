@@ -47,10 +47,6 @@ function createService(overrides: {
       executePromptRequest: overrides.executePromptRequest || (async () => ({ text: 'ok' }))
     } as any,
     {
-      runTakt: async () => ({ text: 'takt' }),
-      runOrcha: async () => ({ text: 'orcha' })
-    } as any,
-    {
       getToolClient: () => toolClient,
       setSkipPermissionsEnabled: () => {},
       toggleSkipPermissions: () => false,

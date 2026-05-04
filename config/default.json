@@ -41,12 +41,6 @@
         "args": ["-y", "--prompt", "{prompt}"],
         "versionArgs": ["--version"],
         "description": "vibe-local CLI (Ollama)"
-      },
-      "takt": {
-        "command": "takt",
-        "args": ["--pipeline", "--task", "{prompt}"],
-        "versionArgs": ["--version"],
-        "description": "TAKT Agent Orchestrator"
       }
     }
   },

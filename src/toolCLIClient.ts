@@ -172,18 +172,6 @@ export class ToolCLIClient {
     return ['-y', ...args];
   }
 
-  private ensureTaktPipelineMode(tool: ToolInfo, args: string[]): string[] {
-    if (tool.name !== 'takt') {
-      return args;
-    }
-
-    if (args.includes('--pipeline')) {
-      return args;
-    }
-
-    return ['--pipeline', ...args];
-  }
-
   private ensureStandardExecutionOptions(tool: ToolInfo, args: string[]): string[] {
     let normalized = [...args];
 
@@ -226,8 +214,7 @@ export class ToolCLIClient {
       }
     }
 
-    normalized = this.ensureVibeLocalAutoApprove(tool, normalized);
-    return this.ensureTaktPipelineMode(tool, normalized);
+    return this.ensureVibeLocalAutoApprove(tool, normalized);
   }
 
   private stripCodexSandboxOption(args: string[]): { args: string[]; sandboxMode?: string } {
@@ -334,13 +321,6 @@ export class ToolCLIClient {
       }
       // No stored session yet — start fresh; session ID will be captured from the response
       return args;
-    }
-
-    if (tool.name === 'takt') {
-      if (args.includes('--continue') || args.includes('-c')) {
-        return args;
-      }
-      return ['--continue', ...args];
     }
 
     return args;

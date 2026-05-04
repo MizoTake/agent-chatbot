@@ -5,7 +5,6 @@ import { ChannelContextService } from './services/ChannelContextService';
 import { ConversationSessionService } from './services/ConversationSessionService';
 import { PromptExecutionService } from './services/PromptExecutionService';
 import { ToolRuntimeService } from './services/ToolRuntimeService';
-import { WorkflowRunnerService } from './services/WorkflowRunnerService';
 
 const logger = createLogger('BotManager');
 
@@ -24,14 +23,8 @@ export class BotManager {
       conversationSessionService,
       channelContextService
     );
-    const workflowRunnerService = new WorkflowRunnerService(
-      this.toolRuntimeService,
-      channelContextService
-    );
-
     this.commandService = new BotCommandService(
       promptExecutionService,
-      workflowRunnerService,
       this.toolRuntimeService,
       channelContextService,
       conversationSessionService

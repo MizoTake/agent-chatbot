@@ -5,14 +5,12 @@ import { ChannelContextService } from './ChannelContextService';
 import { ConversationSessionService } from './ConversationSessionService';
 import { PromptExecutionService } from './PromptExecutionService';
 import { ToolRuntimeService } from './ToolRuntimeService';
-import { WorkflowRunnerService } from './WorkflowRunnerService';
 
 const logger = createLogger('BotCommandService');
 
 export class BotCommandService {
   constructor(
     private readonly promptExecutionService: PromptExecutionService,
-    private readonly workflowRunnerService: WorkflowRunnerService,
     private readonly toolRuntimeService: ToolRuntimeService,
     private readonly channelContextService: ChannelContextService,
     private readonly conversationSessionService: ConversationSessionService
@@ -58,14 +56,6 @@ export class BotCommandService {
       return this.handleToolCommand(message);
     });
 
-    registerCommandAliases(['takt-run'], async (message: BotMessage): Promise<BotResponse | null> => {
-      return this.workflowRunnerService.runTakt(message);
-    });
-
-    registerCommandAliases(['orcha-run'], async (message: BotMessage): Promise<BotResponse | null> => {
-      return this.workflowRunnerService.runOrcha(message);
-    });
-
     registerCommandAliases(['agent-help', 'claude-help'], async (): Promise<BotResponse | null> => {
       return {
         text: 'Agent Chatbot ヘルプ',
@@ -82,8 +72,6 @@ export class BotCommandService {
                 '• `/agent-tool use <name>` - このチャンネルの既定ツールを設定\n' +
                 '• `/agent-tool clear` - このチャンネルの固定設定を解除（全体既定へ）\n' +
                 '• `/agent-tool reset` - 全チャンネルの固定設定を一括削除（全体既定に戻す）\n' +
-                '• `/takt-run <タスク>` - TAKT パイプラインモードでタスク実行\n' +
-                '• `/orcha-run <タスク>` - orcha サイクルでタスク実行\n' +
                 '• `/agent-repo <URL>` - Gitリポジトリをクローンしてチャンネルにリンク\n' +
                 '• `/agent-repo status` - 現在のリポジトリ状態を確認\n' +
                 '• `/agent-repo create <name>` - 新規Gitリポジトリを作成してリンク\n' +
