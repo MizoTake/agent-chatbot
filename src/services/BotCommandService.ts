@@ -1,3 +1,4 @@
+import { BOT_COMMANDS } from '../config/botCommands';
 import { ConfigValidator } from '../config/validator';
 import { BotAdapter, BotMessage, BotResponse } from '../interfaces/BotInterface';
 import { createLogger } from '../utils/logger';
@@ -19,11 +20,11 @@ export class BotCommandService {
   ) {}
 
   register(bot: BotAdapter): void {
-    const registerCommandAliases = (
-      commands: string[],
+    const registerCommand = (
+      command: string,
       handler: (message: BotMessage) => Promise<BotResponse | null>
     ): void => {
-      commands.forEach(command => bot.onCommand(command, handler));
+      bot.onCommand(command, handler);
     };
 
     bot.onMessage(async (message: BotMessage): Promise<BotResponse | null> => {
@@ -40,7 +41,7 @@ export class BotCommandService {
       );
     });
 
-    registerCommandAliases(['agent', 'claude'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.agent, async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text) {
         return {
           text: '📝 Please provide a prompt. Usage: `/agent <your prompt>` or `/agent --tool <tool> <your prompt>`'
@@ -54,7 +55,7 @@ export class BotCommandService {
       );
     });
 
-    registerCommandAliases(['codex'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.codex, async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text && !message.attachments?.length) {
         return {
           text: '📝 プロンプトを指定してください。使用例: `/codex <プロンプト>`'
@@ -68,7 +69,7 @@ export class BotCommandService {
       );
     });
 
-    registerCommandAliases(['goal', 'codex-goal'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.goal, async (message: BotMessage): Promise<BotResponse | null> => {
       if (!message.text) {
         return {
           text: '📝 目標を指定してください。使用例: `/goal ログイン失敗を直す`'
@@ -82,15 +83,15 @@ export class BotCommandService {
       );
     });
 
-    registerCommandAliases(['agent-tool', 'claude-tool', 'codex-tool'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.tool, async (message: BotMessage): Promise<BotResponse | null> => {
       return this.handleToolCommand(message);
     });
 
-    registerCommandAliases(['codex-model', 'agent-codex-model'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.codexModel, async (message: BotMessage): Promise<BotResponse | null> => {
       return this.handleCodexModelCommand(message);
     });
 
-    registerCommandAliases(['agent-help', 'claude-help', 'codex-help'], async (): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.help, async (): Promise<BotResponse | null> => {
       return {
         text: 'Agent Chatbot ヘルプ',
         blocks: [
@@ -98,41 +99,33 @@ export class BotCommandService {
             type: 'section',
             text: {
               type: 'mrkdwn',
-              text: '*利用可能なコマンド:*\n\n' +
+              text: '*基本コマンド*\n' +
                 '• `/agent <プロンプト>` - 現在の既定ツールで実行\n' +
-                '• `/agent --tool <name> <プロンプト>` - 1回だけツールを切り替えて実行\n' +
                 '• `/codex <プロンプト>` - Codex 固定で実行\n' +
-                '• `/codex-model use <model>` - このチャンネルの Codex モデルを固定\n' +
-                '• `/codex-model clear` - このチャンネルの Codex モデル固定を解除\n' +
-                '• `/goal <目標>` - Codex に目標達成型の作業を依頼\n' +
-                '• `/agent-tool status` - 現在の有効ツールを表示\n' +
-                '• `/agent-tool list` - 設定済みツール一覧とCLI検出状態を表示\n' +
-                '• `/agent-tool use <name>` - このチャンネルの既定ツールを設定\n' +
-                '• `/agent-tool clear` - このチャンネルの固定設定を解除（全体既定へ）\n' +
-                '• `/agent-tool reset` - 全チャンネルの固定設定を一括削除（全体既定に戻す）\n' +
-                '• `/agent-repo <URL>` - Gitリポジトリをクローンしてチャンネルにリンク\n' +
-                '• `/agent-repo status` - 現在のリポジトリ状態を確認\n' +
-                '• `/agent-repo create <name>` - 新規Gitリポジトリを作成してリンク\n' +
-                '• `/agent-repo tool <name>` - このチャンネル(=リポジトリ)の既定ツールを設定\n' +
-                '• `/agent-repo delete` - このチャンネルのリポジトリリンクを削除\n' +
-                '• `/agent-repo reset` - すべてのリポジトリリンクをリセット\n' +
+                '• `/goal <目標>` - Codex に目標達成型の作業を依頼\n\n' +
+                '*設定・状態確認*\n' +
                 '• `/agent-status` - ツールCLIとリポジトリの状態を確認\n' +
                 '• `/agent-clear` - 会話継続状態をクリア\n' +
-                '• `/agent-update` - GitHub からアプリ本体を pull/build して再起動を予約\n' +
-                '• `/agent-update status` - アプリ本体の GitHub 更新状況を確認\n' +
-                '• `/agent-restart` - アプリ本体の再起動を予約\n' +
-                '• `/agent-help` - このヘルプを表示'
+                '• `/agent-tool status|list|use <name>|clear|reset` - 既定ツールを確認・変更\n' +
+                '• `/codex-model status|use <model>|clear` - Codex モデルを確認・変更\n\n' +
+                '*リポジトリ*\n' +
+                '• `/agent-repo create <name>` - 新規Gitリポジトリを作成してリンク\n' +
+                '• `/agent-repo <URL>` - Gitリポジトリをクローンしてリンク\n' +
+                '• `/agent-repo status|tool <name>|delete|reset` - リポジトリ設定を確認・変更\n\n' +
+                '*管理*\n' +
+                '• `/agent-update [status|restart]` - アプリ本体を更新、状態確認、再起動予約\n' +
+                '• `/agent-restart` - アプリ本体の再起動を予約'
             }
           }
         ]
       };
     });
 
-    registerCommandAliases(['agent-status', 'claude-status', 'codex-status'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.status, async (message: BotMessage): Promise<BotResponse | null> => {
       return this.handleStatusCommand(message);
     });
 
-    registerCommandAliases(['agent-clear', 'claude-clear', 'codex-clear'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.clear, async (message: BotMessage): Promise<BotResponse | null> => {
       const clearedConversationCount = this.conversationSessionService.clearConversationState(message.channelId);
       return {
         text: '🧹 会話コンテキストをクリアしました',
@@ -148,19 +141,15 @@ export class BotCommandService {
       };
     });
 
-    registerCommandAliases(['agent-skip-permissions', 'claude-skip-permissions', 'codex-skip-permissions'], async (message: BotMessage): Promise<BotResponse | null> => {
-      return this.handleSkipPermissionsCommand(message);
-    });
-
-    registerCommandAliases(['agent-repo', 'claude-repo', 'codex-repo'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.repository, async (message: BotMessage): Promise<BotResponse | null> => {
       return this.handleRepositoryCommand(message);
     });
 
-    registerCommandAliases(['agent-update', 'codex-update'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.update, async (message: BotMessage): Promise<BotResponse | null> => {
       return this.handleUpdateCommand(message);
     });
 
-    registerCommandAliases(['agent-restart', 'codex-restart'], async (): Promise<BotResponse | null> => {
+    registerCommand(BOT_COMMANDS.restart, async (): Promise<BotResponse | null> => {
       return this.handleRestartCommand();
     });
   }
@@ -429,49 +418,6 @@ export class BotCommandService {
           text: {
             type: 'mrkdwn',
             text: statusText
-          }
-        }
-      ]
-    };
-  }
-
-  private async handleSkipPermissionsCommand(message: BotMessage): Promise<BotResponse | null> {
-    const action = message.text?.trim().toLowerCase();
-    if (action === 'on' || action === 'enable') {
-      this.toolRuntimeService.setSkipPermissionsEnabled(true);
-    } else if (action === 'off' || action === 'disable') {
-      this.toolRuntimeService.setSkipPermissionsEnabled(false);
-    } else if (!action) {
-      this.toolRuntimeService.toggleSkipPermissions();
-    } else {
-      return {
-        text: '❌ 無効なパラメータです',
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: '**使用方法:**\n• `/agent-skip-permissions` - 現在の設定を切り替え\n• `/agent-skip-permissions on` - 有効化\n• `/agent-skip-permissions off` - 無効化'
-            }
-          }
-        ]
-      };
-    }
-
-    const enabled = this.toolRuntimeService.isSkipPermissionsEnabled();
-    const statusEmoji = enabled ? '🔓' : '🔒';
-    const statusText = enabled ? '有効' : '無効';
-    return {
-      text: `${statusEmoji} --dangerously-skip-permissions が${statusText}になりました`,
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `**権限スキップモード:** ${statusEmoji} ${statusText}\n\n` +
-              (enabled
-                ? '⚠️ **警告:** このモードでは、対応ツールはファイルシステムへの広いアクセス権を持ちます。信頼できる環境でのみ使用してください。'
-                : '✅ 通常モードで動作しています。ツールは制限された権限で実行されます。')
           }
         }
       ]

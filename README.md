@@ -98,33 +98,23 @@ npm start
 - **ダイレクトメッセージ**: ボットに直接メッセージを送信
 - **通常のチャンネル投稿**: ボットが参加しているギルドチャンネルでは、メンションなしの投稿も処理対象
 - **チャンネルメンション**: `@ボット名 メッセージ`
-- **スラッシュコマンド**:
+- **Discord に表示されるスラッシュコマンド**:
   - `/agent <プロンプト>` - 現在の既定ツールでプロンプトを送信（同一チャンネルでは会話を継続）
   - `/agent --tool <name> <プロンプト>` - 1回だけ実行ツールを指定（例: `claude` / `codex` / `vibe-local`）
   - `/codex <プロンプト>` - Codex 固定でプロンプトを送信
+  - `/goal <目標>` - Codex に目標達成型の作業を依頼
+  - `/agent-repo <URL>` - リポジトリをクローンしてリンク
+  - `/agent-repo create <name>` - 新規Gitリポジトリを作成してリンク
+  - `/agent-repo status|tool <name>|delete|reset` - リポジトリ設定を確認・変更
+  - `/agent-tool status|list|use <name>|clear|reset` - 既定ツールを確認・変更
   - `/codex-model status` - このチャンネルの Codex モデル設定を確認
   - `/codex-model use <model>` - このチャンネルの Codex モデルを固定（例: `gpt-5.4`）
   - `/codex-model clear` - このチャンネルの Codex モデル固定を解除
-  - `/goal <目標>` - Codex に目標達成型の作業を依頼
-  - `/agent-tool status` - 現在の有効ツールを確認
-  - `/agent-tool list` - 設定済みツールとCLI検出状態を確認
-  - `/agent-tool use <name>` - このチャンネルの既定ツールを変更
-  - `/agent-tool clear` - チャンネル既定ツールを解除
-  - `/agent-repo <URL>` - リポジトリをクローンしてリンク
-  - `/agent-repo status` - リポジトリの状態を確認
-  - `/agent-repo tool <name>` - このチャンネル(=リポジトリ)の既定ツールを設定
-  - `/agent-repo delete` - リポジトリのリンクを削除
-  - `/agent-repo reset` - すべてのチャンネルのリポジトリリンクをリセット
-  - `/agent-help` - コマンドのヘルプを表示
+  - `/agent-update [status|restart]` - アプリ本体の更新、状態確認、再起動予約
   - `/agent-status` - 現在の有効ツールとリポジトリの状態を確認
   - `/agent-clear` - 会話継続状態をクリアして新規セッションに戻す
-  - `/agent-update` / `/codex-update` - GitHub からアプリ本体を `git pull --ff-only` し、必要に応じて `npm install`、`npm run build` 後に再起動を予約
-  - `/agent-update status` / `/codex-update status` - アプリ本体の GitHub 更新状況を確認
-  - `/agent-restart` / `/codex-restart` - アプリ本体の再起動を予約
-  - `/agent-skip-permissions` - --dangerously-skip-permissionsフラグの切り替え
-  - `/agent-skip-permissions on/off` - 権限スキップモードの有効化/無効化
-    - ⚠️ **注意**: root権限で実行時は、`CLAUDE_FORCE_ALLOW_ROOT=true`を設定するか、`CLAUDE_RUN_AS_USER`で別ユーザーを指定してください（この設定は `supportsSkipPermissions=true` のツールに適用）
-  - 互換エイリアスとして `/claude*` 系コマンド、Codex向けエイリアスとして `/codex-*` 系コマンドも利用可能
+  - `/agent-restart` - アプリ本体の再起動を予約
+  - `/agent-help` - コマンドのヘルプを表示
 
 利用ツールを切り替える例:
 ```text

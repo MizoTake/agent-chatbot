@@ -3,7 +3,17 @@ import assert from 'node:assert/strict';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { DISPLAYED_SLASH_COMMANDS } from '../config/botCommands';
 import { DiscordAdapter } from './DiscordAdapter';
+
+test('DiscordAdapter.buildSlashCommands: 表示する slash command は代表名に絞る', () => {
+  const adapter = new DiscordAdapter('dummy-token');
+  const commands = (adapter as any).buildSlashCommands();
+  const names = commands.map((command: any) => command.name);
+
+  assert.deepEqual(names, [...DISPLAYED_SLASH_COMMANDS]);
+  assert.equal(names.some((name: string) => name.startsWith('codex-') && name !== 'codex-model'), false);
+});
 
 test('DiscordAdapter: embed の件数と説明文長を Discord 制約内に収める', () => {
   const adapter = new DiscordAdapter('dummy-token');

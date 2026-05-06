@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
+import { DISPLAYED_SLASH_COMMANDS } from '../config/botCommands';
 import { BotCommandService } from './BotCommandService';
 
 interface FakeBot {
@@ -53,8 +54,6 @@ function createService(overrides: {
     } as any,
     {
       getToolClient: () => toolClient,
-      setSkipPermissionsEnabled: () => {},
-      toggleSkipPermissions: () => false,
       isSkipPermissionsEnabled: () => false
     } as any,
     {
@@ -156,6 +155,17 @@ test('BotCommandService: /agent は showToolPrefix=true で委譲する', async 
   assert.deepEqual(calls, [true]);
 });
 
+test('BotCommandService: 表示対象の代表コマンドだけを登録する', () => {
+  const bot = createFakeBot();
+  const service = createService();
+  service.register(bot as any);
+
+  assert.deepEqual(
+    [...bot.commandHandlers.keys()].sort(),
+    [...DISPLAYED_SLASH_COMMANDS].sort()
+  );
+});
+
 test('BotCommandService: /codex は codex ツール指定として委譲する', async () => {
   const bot = createFakeBot();
   const calls: Array<{ text: string; showToolPrefix: boolean }> = [];
@@ -221,24 +231,21 @@ test('BotCommandService: /agent-tool use はチャンネル固定ツールを更
   assert.deepEqual(updates, [{ channelId: 'C001', toolName: 'codex' }]);
 });
 
-test('BotCommandService: /codex-tool は agent-tool と同じ処理でツール設定を更新する', async () => {
+test('BotCommandService: /agent-help は整理済みの代表コマンドだけを返す', async () => {
   const bot = createFakeBot();
-  const updates: Array<{ channelId: string; toolName: string }> = [];
-  const service = createService({
-    setChannelTool: (channelId, toolName) => {
-      updates.push({ channelId, toolName });
-    }
-  });
+  const service = createService();
   service.register(bot as any);
 
-  const handler = bot.commandHandlers.get('codex-tool');
+  const handler = bot.commandHandlers.get('agent-help');
   const response = await handler?.({
-    text: 'use codex',
+    text: '',
     channelId: 'C001'
   });
+  const helpText = response?.blocks?.[0]?.text?.text || '';
 
-  assert.match(response?.text || '', /codex/);
-  assert.deepEqual(updates, [{ channelId: 'C001', toolName: 'codex' }]);
+  assert.match(helpText, /\/agent <プロンプト>/);
+  assert.match(helpText, /\/agent-update \[status\|restart\]/);
+  assert.match(helpText, /\/agent-restart/);
 });
 
 test('BotCommandService: /codex-model use はチャンネル固定モデルを更新して会話状態をクリアする', async () => {
@@ -314,7 +321,7 @@ test('BotCommandService: /agent-update はアプリ更新サービスへ委譲�
   assert.deepEqual(calls, ['pull']);
 });
 
-test('BotCommandService: /codex-restart は再起動サービスへ委譲する', async () => {
+test('BotCommandService: /agent-restart は再起動サービスへ委譲する', async () => {
   const bot = createFakeBot();
   let called = false;
   const service = createService({
@@ -325,7 +332,7 @@ test('BotCommandService: /codex-restart は再起動サービスへ委譲する'
   });
   service.register(bot as any);
 
-  const handler = bot.commandHandlers.get('codex-restart');
+  const handler = bot.commandHandlers.get('agent-restart');
   const response = await handler?.({
     text: '',
     channelId: 'C001'
@@ -389,19 +396,4 @@ test('BotCommandService: /agent-clear は conversation state の件数を表示�
   });
 
   assert.match(response?.blocks?.[0]?.text?.text || '', /3件/);
-});
-
-test('BotCommandService: /agent-skip-permissions の不正値は使い方を返す', async () => {
-  const bot = createFakeBot();
-  const service = createService();
-  service.register(bot as any);
-
-  const handler = bot.commandHandlers.get('agent-skip-permissions');
-  const response = await handler?.({
-    text: 'invalid',
-    channelId: 'C001'
-  });
-
-  assert.match(response?.text || '', /無効なパラメータ/);
-  assert.match(response?.blocks?.[0]?.text?.text || '', /使用方法/);
 });

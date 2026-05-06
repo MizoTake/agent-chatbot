@@ -27,15 +27,6 @@ export class ToolRuntimeService {
     return this.skipPermissionsEnabled;
   }
 
-  setSkipPermissionsEnabled(enabled: boolean): void {
-    this.skipPermissionsEnabled = enabled;
-  }
-
-  toggleSkipPermissions(): boolean {
-    this.skipPermissionsEnabled = !this.skipPermissionsEnabled;
-    return this.skipPermissionsEnabled;
-  }
-
   getAgentDisplayName(): string {
     const explicitName = process.env.AGENT_CHATBOT_APP_NAME?.trim();
     if (explicitName) {

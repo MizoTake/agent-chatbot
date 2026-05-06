@@ -113,16 +113,6 @@ test('ToolRuntimeService: 環境変数がなければ ToolCLIClient の default 
   }
 });
 
-test('ToolRuntimeService: skipPermissions を set/toggle で変更できる', () => {
-  const service = createService();
-
-  assert.equal(service.isSkipPermissionsEnabled(), false);
-  service.setSkipPermissionsEnabled(true);
-  assert.equal(service.isSkipPermissionsEnabled(), true);
-  assert.equal(service.toggleSkipPermissions(), false);
-  assert.equal(service.isSkipPermissionsEnabled(), false);
-});
-
 test('ToolRuntimeService: LMStudio を使わないツールは readiness チェックを素通りする', async () => {
   let fetchCount = 0;
   const service = createService({

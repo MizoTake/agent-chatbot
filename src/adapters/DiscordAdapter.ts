@@ -2,7 +2,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { AttachmentBuilder, Client, GatewayIntentBits, Message, Interaction, TextChannel, DMChannel, Partials } from 'discord.js';
+import { ApplicationCommandDataResolvable, AttachmentBuilder, Client, GatewayIntentBits, Message, Interaction, TextChannel, DMChannel, Partials } from 'discord.js';
+import { BOT_COMMANDS } from '../config/botCommands';
 import { BotAdapter, BotAttachment, BotMessage, BotResponse } from '../interfaces/BotInterface';
 import { createLogger } from '../utils/logger';
 
@@ -540,11 +541,22 @@ export class DiscordAdapter implements BotAdapter {
       return;
     }
 
+    const commands = this.buildSlashCommands();
+
+    try {
+      await this.client.application?.commands.set(commands);
+      logger.info('Discord slash commands registered');
+    } catch (error) {
+      this.logDiscordApiError('registerSlashCommands', error);
+    }
+  }
+
+  private buildSlashCommands(): ApplicationCommandDataResolvable[] {
     const normalizedAgentName = this.agentName.trim() || 'agent';
 
-    const commands = [
+    return [
       {
-        name: 'agent',
+        name: BOT_COMMANDS.agent,
         description: `Chat with ${normalizedAgentName}`,
         options: [{
           name: 'prompt',
@@ -554,7 +566,7 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'codex',
+        name: BOT_COMMANDS.codex,
         description: 'Run a prompt with Codex',
         options: [{
           name: 'prompt',
@@ -564,17 +576,7 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'codex-model',
-        description: 'Set or show the Codex model for this channel',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: 'status / use <model> / clear',
-          required: false,
-        }],
-      },
-      {
-        name: 'goal',
+        name: BOT_COMMANDS.goal,
         description: 'Ask Codex to complete a goal',
         options: [{
           name: 'prompt',
@@ -584,41 +586,7 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'codex-goal',
-        description: 'Ask Codex to complete a goal',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: 'Goal description',
-          required: true,
-        }],
-      },
-      {
-        name: 'agent-help',
-        description: `Show ${normalizedAgentName} help`,
-      },
-      {
-        name: 'codex-help',
-        description: 'Show Codex command help',
-      },
-      {
-        name: 'agent-status',
-        description: 'Show tool and repository status',
-      },
-      {
-        name: 'codex-status',
-        description: 'Show tool and repository status',
-      },
-      {
-        name: 'agent-clear',
-        description: 'Clear conversation context',
-      },
-      {
-        name: 'codex-clear',
-        description: 'Clear conversation context',
-      },
-      {
-        name: 'agent-repo',
+        name: BOT_COMMANDS.repository,
         description: 'Manage repository for this channel',
         options: [{
           name: 'prompt',
@@ -628,37 +596,7 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'codex-repo',
-        description: 'Manage repository for this channel',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: '<url> / status / create <name> / tool <name> / delete / reset',
-          required: true,
-        }],
-      },
-      {
-        name: 'agent-skip-permissions',
-        description: 'Toggle --dangerously-skip-permissions flag',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: 'on|enable / off|disable / empty to toggle',
-          required: false,
-        }],
-      },
-      {
-        name: 'codex-skip-permissions',
-        description: 'Toggle --dangerously-skip-permissions flag',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: 'on|enable / off|disable / empty to toggle',
-          required: false,
-        }],
-      },
-      {
-        name: 'agent-tool',
+        name: BOT_COMMANDS.tool,
         description: `Tool command: list / status / use <name> / clear / reset`,
         options: [{
           name: 'prompt',
@@ -668,17 +606,17 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'codex-tool',
-        description: 'Tool command: list / status / use <name> / clear / reset',
+        name: BOT_COMMANDS.codexModel,
+        description: 'Set or show the Codex model for this channel',
         options: [{
           name: 'prompt',
           type: 3,
-          description: 'list / status / use <name> / clear / reset',
+          description: 'status / use <model> / clear',
           required: false,
         }],
       },
       {
-        name: 'agent-update',
+        name: BOT_COMMANDS.update,
         description: 'Pull latest app code from GitHub and restart',
         options: [{
           name: 'prompt',
@@ -688,31 +626,22 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
-        name: 'codex-update',
-        description: 'Pull latest app code from GitHub and restart',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: 'pull / status / restart',
-          required: false,
-        }],
+        name: BOT_COMMANDS.status,
+        description: 'Show tool and repository status',
       },
       {
-        name: 'agent-restart',
-        description: 'Restart the app process',
+        name: BOT_COMMANDS.clear,
+        description: 'Clear conversation context',
       },
       {
-        name: 'codex-restart',
+        name: BOT_COMMANDS.help,
+        description: `Show ${normalizedAgentName} help`,
+      },
+      {
+        name: BOT_COMMANDS.restart,
         description: 'Restart the app process',
       },
     ];
-
-    try {
-      await this.client.application?.commands.set(commands);
-      logger.info('Discord slash commands registered');
-    } catch (error) {
-      this.logDiscordApiError('registerSlashCommands', error);
-    }
   }
 
   async start(): Promise<void> {
