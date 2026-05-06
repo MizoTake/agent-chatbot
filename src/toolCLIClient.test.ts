@@ -577,6 +577,10 @@ test('ToolCLIClient: add resume option per tool', () => {
       ['--sandbox', 'danger-full-access', 'exec', 'resume', '--last', 'hello']
     );
     assert.deepEqual(
+      applyResumeOption(codexTool, ['exec', '--sandbox', 'danger-full-access', 'hello'], true, 'thread-abc'),
+      ['--sandbox', 'danger-full-access', 'exec', 'resume', 'thread-abc', 'hello']
+    );
+    assert.deepEqual(
       applyResumeOption(vibeTool, ['--prompt', 'hello'], true),
       ['--resume', '--prompt', 'hello']
     );
@@ -1076,79 +1080,6 @@ test('processOutput: 漏洩したシステムプロンプト指示を除去す�
   client.cleanup();
 });
 
-test('ToolCLIClient: ensure --pipeline for takt', () => {
-  const client = new ToolCLIClient({}, 'claude', 5000);
-
-  try {
-    const ensure = (client as any).ensureTaktPipelineMode.bind(client);
-    const taktTool = {
-      name: 'takt',
-      command: 'takt',
-      args: ['--task', '{prompt}'],
-      versionArgs: ['--version'],
-      supportsSkipPermissions: false
-    };
-    const otherTool = {
-      name: 'claude',
-      command: 'claude',
-      args: ['--print', '{prompt}'],
-      versionArgs: ['--version'],
-      supportsSkipPermissions: true
-    };
-
-    // takt: --pipeline が付与される
-    assert.deepEqual(
-      ensure(taktTool, ['--task', 'hello']),
-      ['--pipeline', '--task', 'hello']
-    );
-    // takt: 既に --pipeline がある場合は重複しない
-    assert.deepEqual(
-      ensure(taktTool, ['--pipeline', '--task', 'hello']),
-      ['--pipeline', '--task', 'hello']
-    );
-    // 他のツールには影響しない
-    assert.deepEqual(
-      ensure(otherTool, ['--print', 'hello']),
-      ['--print', 'hello']
-    );
-  } finally {
-    client.cleanup();
-  }
-});
-
-test('ToolCLIClient: takt の --continue resume オプション', () => {
-  const client = new ToolCLIClient({}, 'claude', 5000);
-
-  try {
-    const applyResumeOption = (client as any).applyResumeOption.bind(client);
-    const taktTool = {
-      name: 'takt',
-      command: 'takt',
-      args: ['--pipeline', '--task', '{prompt}'],
-      versionArgs: ['--version'],
-      supportsSkipPermissions: false
-    };
-
-    // takt: resume=true → --continue が付与される
-    assert.deepEqual(
-      applyResumeOption(taktTool, ['--pipeline', '--task', 'hello'], true, undefined),
-      ['--continue', '--pipeline', '--task', 'hello']
-    );
-    // takt: 既に --continue がある場合は重複しない
-    assert.deepEqual(
-      applyResumeOption(taktTool, ['--continue', '--pipeline', '--task', 'hello'], true, undefined),
-      ['--continue', '--pipeline', '--task', 'hello']
-    );
-    // takt: resume=false → --continue は付与されない
-    assert.deepEqual(
-      applyResumeOption(taktTool, ['--pipeline', '--task', 'hello'], false, undefined),
-      ['--pipeline', '--task', 'hello']
-    );
-  } finally {
-    client.cleanup();
-  }
-});
-
 test('ToolCLIClient: extraArgs がツール引数の前に挿入される', () => {
   const client = new ToolCLIClient({}, 'claude', 5000);
 
@@ -1159,20 +1090,20 @@ test('ToolCLIClient: extraArgs がツール引数の前に挿入される', () =
     // and would be interpreted as node flags.
     const buildArgs = (client as any).buildArgs.bind(client);
     const tool = {
-      name: 'takt',
-      command: 'takt',
-      args: ['--pipeline', '--task', '{prompt}'],
+      name: 'sample-tool',
+      command: 'sample-tool',
+      args: ['--task', '{prompt}'],
       versionArgs: ['--version'],
       supportsSkipPermissions: false
     };
 
     const builtArgs = buildArgs(tool, 'hello world');
-    assert.deepEqual(builtArgs, ['--pipeline', '--task', 'hello world']);
+    assert.deepEqual(builtArgs, ['--task', 'hello world']);
 
     // Simulate extraArgs insertion (same logic as executeTool)
-    const extraArgs = ['--auto-pr', '--provider', 'claude'];
+    const extraArgs = ['--verbose', '--profile', 'default'];
     const finalArgs = [...extraArgs, ...builtArgs];
-    assert.deepEqual(finalArgs, ['--auto-pr', '--provider', 'claude', '--pipeline', '--task', 'hello world']);
+    assert.deepEqual(finalArgs, ['--verbose', '--profile', 'default', '--task', 'hello world']);
   } finally {
     client.cleanup();
   }
@@ -1200,6 +1131,67 @@ test('ToolCLIClient: codex の画像入力は exec と exec resume の正しい�
       ['--sandbox', 'danger-full-access', 'exec', 'resume', '--image', 'C:\\temp\\frame.png', '--last', 'hello']
     );
   } finally {
+    client.cleanup();
+  }
+});
+
+test('ToolCLIClient: codex は prompt を stdin で渡し --cd と output-last-message を付与する', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolcli-codex-stdin-'));
+  const repoDir = path.join(tempDir, 'repo');
+  const scriptPath = path.join(tempDir, 'fake-codex.js');
+  const commandPath = path.join(tempDir, process.platform === 'win32' ? 'fake-codex.cmd' : 'fake-codex');
+  const recordPath = path.join(tempDir, 'record.json');
+  fs.mkdirSync(repoDir, { recursive: true });
+  fs.writeFileSync(scriptPath, `
+const fs = require('fs');
+const args = process.argv.slice(2);
+let stdin = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => { stdin += chunk; });
+process.stdin.on('end', () => {
+  const outputIndex = args.indexOf('--output-last-message');
+  if (outputIndex >= 0 && args[outputIndex + 1]) {
+    fs.writeFileSync(args[outputIndex + 1], 'fallback from file', 'utf8');
+  }
+  fs.writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({ args, stdin }), 'utf8');
+  process.stdout.write('{"type":"turn.completed","thread_id":"thread-file"}\\n');
+});
+`, 'utf8');
+  if (process.platform === 'win32') {
+    fs.writeFileSync(commandPath, `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`, 'utf8');
+  } else {
+    fs.writeFileSync(commandPath, `#!/bin/sh\nexec "${process.execPath}" "${scriptPath}" "$@"\n`, 'utf8');
+    fs.chmodSync(commandPath, 0o755);
+  }
+
+  const client = new ToolCLIClient(
+    {
+      codex: {
+        command: commandPath,
+        args: ['exec', '{prompt}'],
+        versionArgs: ['-v']
+      }
+    },
+    'codex',
+    5000
+  );
+
+  try {
+    const result = await client.sendPrompt('hello from stdin', {
+      toolName: 'codex',
+      workingDirectory: repoDir
+    });
+
+    const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
+    assert.equal(result.response, 'fallback from file');
+    assert.equal(result.sessionId, 'thread-file');
+    assert.equal(record.stdin, 'hello from stdin');
+    assert.equal(record.args.at(-1), '-');
+    assert.ok(record.args.includes('--cd'));
+    assert.equal(record.args[record.args.indexOf('--cd') + 1], repoDir);
+    assert.ok(record.args.includes('--output-last-message'));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
     client.cleanup();
   }
 });

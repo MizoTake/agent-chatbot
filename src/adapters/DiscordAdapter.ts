@@ -695,26 +695,6 @@ export class DiscordAdapter implements BotAdapter {
         name: 'codex-restart',
         description: 'Restart the app process',
       },
-      {
-        name: 'takt-run',
-        description: 'Run TAKT pipeline task (non-interactive)',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: 'Task description (optionally with --auto-pr, --provider, --piece flags)',
-          required: true,
-        }],
-      },
-      {
-        name: 'orcha-run',
-        description: 'Run orcha cycle on linked repository',
-        options: [{
-          name: 'prompt',
-          type: 3,
-          description: 'Task description or "status" (optionally with --profile, --no-timeout flags)',
-          required: true,
-        }],
-      },
     ];
 
     try {
