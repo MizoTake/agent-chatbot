@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import { withRetry, isRetryableError } from './utils/retry';
 import { createLogger } from './utils/logger';
@@ -278,7 +279,7 @@ export class ToolCLIClient {
           '--dangerously-bypass-approvals-and-sandbox',
           'exec',
           'resume',
-          '--last',
+          ...(sessionId ? [sessionId] : ['--last']),
           ...filteredAfter
         ];
       }
@@ -290,7 +291,7 @@ export class ToolCLIClient {
         sandboxMode,
         'exec',
         'resume',
-        '--last',
+        ...(sessionId ? [sessionId] : ['--last']),
         ...strippedAfter.args
       ];
     }
@@ -347,6 +348,73 @@ export class ToolCLIClient {
     }
 
     return [...imageArgs, ...args];
+  }
+
+  private applyCodexWorkingDirectoryOption(tool: ToolInfo, args: string[], workingDirectory?: string): string[] {
+    if (tool.name !== 'codex' || !workingDirectory || args.includes('--cd') || args.includes('-C')) {
+      return args;
+    }
+
+    const execIndex = args.indexOf('exec');
+    if (execIndex < 0) {
+      return args;
+    }
+
+    return [
+      ...args.slice(0, execIndex + 1),
+      '--cd',
+      path.resolve(workingDirectory),
+      ...args.slice(execIndex + 1)
+    ];
+  }
+
+  private applyCodexOutputLastMessageOption(tool: ToolInfo, args: string[], outputPath?: string): string[] {
+    if (tool.name !== 'codex' || !outputPath || args.includes('--output-last-message') || args.includes('-o')) {
+      return args;
+    }
+
+    const resumeIndex = args.indexOf('resume');
+    if (resumeIndex >= 0) {
+      return [
+        ...args.slice(0, resumeIndex + 1),
+        '--output-last-message',
+        outputPath,
+        ...args.slice(resumeIndex + 1)
+      ];
+    }
+
+    const execIndex = args.indexOf('exec');
+    if (execIndex >= 0) {
+      return [
+        ...args.slice(0, execIndex + 1),
+        '--output-last-message',
+        outputPath,
+        ...args.slice(execIndex + 1)
+      ];
+    }
+
+    return args;
+  }
+
+  private createCodexOutputLastMessagePath(): { filePath: string; cleanup: () => void } {
+    const dirPath = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-chatbot-codex-'));
+    const filePath = path.join(dirPath, 'last-message.txt');
+    return {
+      filePath,
+      cleanup: () => {
+        fs.rmSync(dirPath, { recursive: true, force: true });
+      }
+    };
+  }
+
+  private readCodexOutputLastMessage(filePath?: string): string | undefined {
+    if (!filePath || !fs.existsSync(filePath)) {
+      return undefined;
+    }
+
+    const content = fs.readFileSync(filePath, 'utf8');
+    const processed = this.processOutput(content);
+    return processed || undefined;
   }
 
   private isResumeUnavailableError(message: string): boolean {
@@ -1591,12 +1659,19 @@ export class ToolCLIClient {
       });
 
       let command = tool.command;
-      let args = this.ensureStandardExecutionOptions(tool, this.buildArgs(tool, prompt));
+      const promptArgument = tool.name === 'codex' ? '-' : prompt;
+      let args = this.ensureStandardExecutionOptions(tool, this.buildArgs(tool, promptArgument));
       if (extraArgs && extraArgs.length > 0) {
         args = [...extraArgs, ...args];
       }
       args = this.applyResumeOption(tool, args, resumeConversation, sessionId);
       args = this.applyInputImageOptions(tool, args, inputImagePaths);
+      args = this.applyCodexWorkingDirectoryOption(tool, args, workingDirectory);
+      const codexOutputLastMessage = tool.name === 'codex' ? this.createCodexOutputLastMessagePath() : undefined;
+      const cleanupCodexOutputLastMessage = (): void => {
+        codexOutputLastMessage?.cleanup();
+      };
+      args = this.applyCodexOutputLastMessageOption(tool, args, codexOutputLastMessage?.filePath);
 
       const forceAllowRoot = process.env.CLAUDE_FORCE_ALLOW_ROOT === 'true';
       const runAsUser = process.env.CLAUDE_RUN_AS_USER;
@@ -1645,7 +1720,7 @@ export class ToolCLIClient {
 
       // stdin を即座に閉じて、ツールが追加入力を待たないようにする
       if (toolProcess.stdin) {
-        toolProcess.stdin.end();
+        toolProcess.stdin.end(tool.name === 'codex' ? prompt : undefined);
       }
 
       let stdout = '';
@@ -1734,6 +1809,12 @@ export class ToolCLIClient {
 
           if (code === 0) {
             const parsed = this.parseToolOutput(tool, stdout);
+            if (!parsed.response?.trim()) {
+              const outputLastMessage = this.readCodexOutputLastMessage(codexOutputLastMessage?.filePath);
+              if (outputLastMessage) {
+                parsed.response = outputLastMessage;
+              }
+            }
             // When stdout parsing yields empty, check stderr for useful info.
             // Some tools write diagnostic output or even the response to stderr.
             if (!parsed.response?.trim() && stderr.trim()) {
@@ -1761,6 +1842,7 @@ export class ToolCLIClient {
                 tool: tool.name,
                 responsePreview: parsed.response.slice(0, 200)
               });
+              cleanupCodexOutputLastMessage();
               reject(err);
               return;
             }
@@ -1768,6 +1850,7 @@ export class ToolCLIClient {
             resolve(parsed);
           } else {
             if (stderr.includes('command not found') || stderr.includes('not found')) {
+              cleanupCodexOutputLastMessage();
               reject(new Error(`${tool.name} CLIが見つかりません。インストールとPATH設定を確認してください。`));
               return;
             }
@@ -1775,6 +1858,12 @@ export class ToolCLIClient {
             // exit code != 0 でも stdout に有用な情報がある場合がある。
             // codex は JSONL エラーイベントを stdout に書いて exit 1 する。
             const parsed = this.parseToolOutput(tool, stdout);
+            if (!parsed.response?.trim()) {
+              const outputLastMessage = this.readCodexOutputLastMessage(codexOutputLastMessage?.filePath);
+              if (outputLastMessage) {
+                parsed.response = outputLastMessage;
+              }
+            }
             if (parsed.response?.trim()) {
               // 一時エラー (SSE timeout 等) ならリトライ対象にする
               if (this.isTransientToolError(parsed.response)) {
@@ -1785,10 +1874,12 @@ export class ToolCLIClient {
                   code,
                   responsePreview: parsed.response.slice(0, 200)
                 });
+                cleanupCodexOutputLastMessage();
                 reject(err);
                 return;
               }
               // stdout に応答があればそれを返す（エラーメッセージ含む）
+              cleanupCodexOutputLastMessage();
               resolve(parsed);
               return;
             }
@@ -1799,6 +1890,7 @@ export class ToolCLIClient {
             if (this.isTransientToolError(stderrMessage)) {
               const err = new Error(stderrMessage);
               (err as any).transient = true;
+              cleanupCodexOutputLastMessage();
               reject(err);
               return;
             }
@@ -1810,7 +1902,14 @@ export class ToolCLIClient {
           }
         } else if (onBackgroundComplete) {
           if (code === 0) {
-            onBackgroundComplete(this.parseToolOutput(tool, stdout));
+            const parsed = this.parseToolOutput(tool, stdout);
+            if (!parsed.response?.trim()) {
+              const outputLastMessage = this.readCodexOutputLastMessage(codexOutputLastMessage?.filePath);
+              if (outputLastMessage) {
+                parsed.response = outputLastMessage;
+              }
+            }
+            onBackgroundComplete(parsed);
           } else {
             onBackgroundComplete({
               response: '',
@@ -1818,6 +1917,7 @@ export class ToolCLIClient {
             });
           }
         }
+        cleanupCodexOutputLastMessage();
       });
 
       toolProcess.on('error', (err) => {
@@ -1829,8 +1929,10 @@ export class ToolCLIClient {
           this.activeProcesses.delete(toolProcess);
 
           if (err.message.includes('ENOENT')) {
+            cleanupCodexOutputLastMessage();
             reject(new Error(`${tool.name} CLIが見つかりません。インストールとPATH設定を確認してください。`));
           } else {
+            cleanupCodexOutputLastMessage();
             reject(err);
           }
         }

@@ -577,6 +577,10 @@ test('ToolCLIClient: add resume option per tool', () => {
       ['--sandbox', 'danger-full-access', 'exec', 'resume', '--last', 'hello']
     );
     assert.deepEqual(
+      applyResumeOption(codexTool, ['exec', '--sandbox', 'danger-full-access', 'hello'], true, 'thread-abc'),
+      ['--sandbox', 'danger-full-access', 'exec', 'resume', 'thread-abc', 'hello']
+    );
+    assert.deepEqual(
       applyResumeOption(vibeTool, ['--prompt', 'hello'], true),
       ['--resume', '--prompt', 'hello']
     );
@@ -1127,6 +1131,67 @@ test('ToolCLIClient: codex の画像入力は exec と exec resume の正しい�
       ['--sandbox', 'danger-full-access', 'exec', 'resume', '--image', 'C:\\temp\\frame.png', '--last', 'hello']
     );
   } finally {
+    client.cleanup();
+  }
+});
+
+test('ToolCLIClient: codex は prompt を stdin で渡し --cd と output-last-message を付与する', async () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'toolcli-codex-stdin-'));
+  const repoDir = path.join(tempDir, 'repo');
+  const scriptPath = path.join(tempDir, 'fake-codex.js');
+  const commandPath = path.join(tempDir, process.platform === 'win32' ? 'fake-codex.cmd' : 'fake-codex');
+  const recordPath = path.join(tempDir, 'record.json');
+  fs.mkdirSync(repoDir, { recursive: true });
+  fs.writeFileSync(scriptPath, `
+const fs = require('fs');
+const args = process.argv.slice(2);
+let stdin = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => { stdin += chunk; });
+process.stdin.on('end', () => {
+  const outputIndex = args.indexOf('--output-last-message');
+  if (outputIndex >= 0 && args[outputIndex + 1]) {
+    fs.writeFileSync(args[outputIndex + 1], 'fallback from file', 'utf8');
+  }
+  fs.writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({ args, stdin }), 'utf8');
+  process.stdout.write('{"type":"turn.completed","thread_id":"thread-file"}\\n');
+});
+`, 'utf8');
+  if (process.platform === 'win32') {
+    fs.writeFileSync(commandPath, `@echo off\r\n"${process.execPath}" "${scriptPath}" %*\r\n`, 'utf8');
+  } else {
+    fs.writeFileSync(commandPath, `#!/bin/sh\nexec "${process.execPath}" "${scriptPath}" "$@"\n`, 'utf8');
+    fs.chmodSync(commandPath, 0o755);
+  }
+
+  const client = new ToolCLIClient(
+    {
+      codex: {
+        command: commandPath,
+        args: ['exec', '{prompt}'],
+        versionArgs: ['-v']
+      }
+    },
+    'codex',
+    5000
+  );
+
+  try {
+    const result = await client.sendPrompt('hello from stdin', {
+      toolName: 'codex',
+      workingDirectory: repoDir
+    });
+
+    const record = JSON.parse(fs.readFileSync(recordPath, 'utf8'));
+    assert.equal(result.response, 'fallback from file');
+    assert.equal(result.sessionId, 'thread-file');
+    assert.equal(record.stdin, 'hello from stdin');
+    assert.equal(record.args.at(-1), '-');
+    assert.ok(record.args.includes('--cd'));
+    assert.equal(record.args[record.args.indexOf('--cd') + 1], repoDir);
+    assert.ok(record.args.includes('--output-last-message'));
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
     client.cleanup();
   }
 });
