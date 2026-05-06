@@ -442,6 +442,13 @@ export class PromptExecutionService {
   }
 
   private normalizeResolvedLocalPath(resolvedPath: string): string {
+    if (process.platform !== 'win32') {
+      const posixWindowsDriveMatch = resolvedPath.match(/^[\\/][A-Za-z]:([\\/].*)$/);
+      if (posixWindowsDriveMatch?.[1]) {
+        return path.normalize(posixWindowsDriveMatch[1]);
+      }
+    }
+
     const stripped = this.stripWindowsDriveRootPrefix(resolvedPath);
     const normalized = path.normalize(stripped);
     return normalized.replace(/^([A-Za-z]:[\\/])(?=[A-Za-z]:[\\/])/i, '');
