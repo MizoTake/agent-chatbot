@@ -237,6 +237,37 @@ test('ToolCLIClient: codex --oss/-m not duplicated when already present', () => 
   }
 });
 
+test('ToolCLIClient: codex modelOverride は既定モデルを置き換えて exec 前に挿入する', () => {
+  const client = new ToolCLIClient(
+    {
+      codex: {
+        command: 'codex',
+        args: ['exec', '--sandbox', 'danger-full-access', '{prompt}'],
+        versionArgs: ['--version'],
+        model: 'gpt-5.4'
+      }
+    },
+    'codex',
+    5000
+  );
+
+  try {
+    const ensure = (client as any).ensureStandardExecutionOptions.bind(client);
+    const apply = (client as any).applyCodexModelOverride.bind(client);
+    const codexTool = client.listTools().find((t: any) => t.name === 'codex');
+    assert.ok(codexTool);
+
+    const ensured = ensure(codexTool, ['exec', '--sandbox', 'danger-full-access', 'hello']);
+    const result = apply(codexTool, ensured, 'gpt-5.5');
+    assert.equal(result.filter((arg: string) => arg === '-m' || arg === '--model').length, 1);
+    assert.equal(result[result.indexOf('-m') + 1], 'gpt-5.5');
+    assert.equal(result.includes('gpt-5.4'), false);
+    assert.ok(result.indexOf('-m') < result.indexOf('exec'));
+  } finally {
+    client.cleanup();
+  }
+});
+
 test('parseToolOutput: codex JSONL からアシスタントメッセージを抽出する', () => {
   const client = new ToolCLIClient({
     codex: { command: 'codex', args: ['exec', '{prompt}'], versionArgs: ['--version'] }

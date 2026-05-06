@@ -50,7 +50,7 @@ export class ToolRuntimeService {
     return this.toolClient.getDefaultToolName();
   }
 
-  async ensureToolReady(toolName: string): Promise<string | undefined> {
+  async ensureToolReady(toolName: string, modelOverride?: string): Promise<string | undefined> {
     const toolInfo = this.toolClient.getToolInfo(toolName);
     const usesLMStudio = toolInfo?.provider === 'lmstudio';
     if (!usesLMStudio) {
@@ -63,7 +63,7 @@ export class ToolRuntimeService {
       return `❌ [${toolName}] LMStudio が応答しません（${lmstudioUrl}）。LMStudio が起動中でモデルがロードされているか確認してください。`;
     }
 
-    const targetModel = toolInfo?.model || models[0];
+    const targetModel = modelOverride || toolInfo?.model || models[0];
     await this.lmStudioService.warmupModel(lmstudioUrl, targetModel);
     return undefined;
   }

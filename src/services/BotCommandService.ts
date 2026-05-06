@@ -86,6 +86,10 @@ export class BotCommandService {
       return this.handleToolCommand(message);
     });
 
+    registerCommandAliases(['codex-model', 'agent-codex-model'], async (message: BotMessage): Promise<BotResponse | null> => {
+      return this.handleCodexModelCommand(message);
+    });
+
     registerCommandAliases(['agent-help', 'claude-help', 'codex-help'], async (): Promise<BotResponse | null> => {
       return {
         text: 'Agent Chatbot ヘルプ',
@@ -98,6 +102,8 @@ export class BotCommandService {
                 '• `/agent <プロンプト>` - 現在の既定ツールで実行\n' +
                 '• `/agent --tool <name> <プロンプト>` - 1回だけツールを切り替えて実行\n' +
                 '• `/codex <プロンプト>` - Codex 固定で実行\n' +
+                '• `/codex-model use <model>` - このチャンネルの Codex モデルを固定\n' +
+                '• `/codex-model clear` - このチャンネルの Codex モデル固定を解除\n' +
                 '• `/goal <目標>` - Codex に目標達成型の作業を依頼\n' +
                 '• `/agent-tool status` - 現在の有効ツールを表示\n' +
                 '• `/agent-tool list` - 設定済みツール一覧とCLI検出状態を表示\n' +
@@ -179,6 +185,58 @@ export class BotCommandService {
       '',
       `目標:\n${goal.trim()}`
     ].join('\n');
+  }
+
+  private isValidCodexModelName(model: string): boolean {
+    return /^[a-zA-Z0-9._/@:-]+$/.test(model) && model.length <= 120;
+  }
+
+  private handleCodexModelCommand(message: BotMessage): BotResponse {
+    const input = message.text?.trim() || 'status';
+    const [action, value] = input.split(/\s+/, 2);
+    const currentModel = this.channelContextService.getChannelCodexModel(message.channelId);
+
+    if (action === 'status') {
+      return {
+        text: currentModel
+          ? `Codex モデル: \`${currentModel}\``
+          : 'Codex モデルは未設定です（ツール設定または Codex CLI の既定値を使用します）'
+      };
+    }
+
+    if (action === 'use' || action === 'set') {
+      const model = value?.trim();
+      if (!model) {
+        return {
+          text: '❌ Codex モデル名を指定してください。例: `/codex-model use gpt-5.4`'
+        };
+      }
+      if (!this.isValidCodexModelName(model)) {
+        return {
+          text: '❌ Codex モデル名に使えない文字が含まれています。英数字、`.`、`_`、`-`、`/`、`@`、`:` のみ使用できます。'
+        };
+      }
+
+      this.channelContextService.setChannelCodexModel(message.channelId, model);
+      this.conversationSessionService.clearConversationState(message.channelId);
+      return {
+        text: `✅ このチャンネルの Codex モデルを \`${model}\` に設定しました。次回の Codex 実行から反映されます。`
+      };
+    }
+
+    if (action === 'clear' || action === 'reset') {
+      const cleared = this.channelContextService.clearChannelCodexModel(message.channelId);
+      this.conversationSessionService.clearConversationState(message.channelId);
+      return {
+        text: cleared
+          ? '✅ このチャンネルの Codex モデル固定を解除しました'
+          : 'ℹ️ このチャンネルの Codex モデルは未設定です'
+      };
+    }
+
+    return {
+      text: '❌ 無効なサブコマンドです。\n使用方法: `/codex-model status` `/codex-model use <model>` `/codex-model clear`'
+    };
   }
 
   private async handleUpdateCommand(message: BotMessage): Promise<BotResponse | null> {

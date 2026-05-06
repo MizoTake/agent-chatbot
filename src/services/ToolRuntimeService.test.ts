@@ -39,6 +39,44 @@ test('ToolRuntimeService: AGENT_CHATBOT_APP_NAME を最優先する', () => {
   }
 });
 
+test('ToolRuntimeService: LMStudio 利用ツールは指定された modelOverride を優先して warmup する', async () => {
+  const previous = process.env.LMSTUDIO_URL;
+  process.env.LMSTUDIO_URL = 'http://localhost:1234';
+  const warmed: Array<{ baseUrl: string; model: string }> = [];
+  try {
+    const service = createService({
+      toolClient: {
+        getDefaultToolName: () => 'codex',
+        getToolInfo: () => ({ provider: 'lmstudio', model: 'configured-model' }),
+        cleanup: () => {}
+      },
+      lmStudioService: {
+        fetchModels: async () => ['fallback-model'],
+        warmupModel: async (baseUrl: string, model: string) => {
+          warmed.push({ baseUrl, model });
+          return true;
+        }
+      }
+    });
+
+    const actual = await service.ensureToolReady('codex', 'override-model');
+
+    assert.equal(actual, undefined);
+    assert.deepEqual(warmed, [
+      {
+        baseUrl: 'http://localhost:1234',
+        model: 'override-model'
+      }
+    ]);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.LMSTUDIO_URL;
+    } else {
+      process.env.LMSTUDIO_URL = previous;
+    }
+  }
+});
+
 test('ToolRuntimeService: APP_NAME がなければ環境の default tool を使う', () => {
   const previous = process.env.AGENT_CHATBOT_APP_NAME;
   const previousDefaultTool = process.env.AGENT_CHATBOT_TOOLS_DEFAULTTOOL;

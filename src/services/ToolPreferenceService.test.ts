@@ -57,3 +57,38 @@ test('ToolPreferenceService: clearChannelToolが削除結果を返す', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('ToolPreferenceService: Codex モデルをチャンネル別に保持して解除できる', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-prefs-'));
+  const storageFile = path.join(tempDir, 'channel-tools.json');
+
+  try {
+    const service = new ToolPreferenceService(storageFile);
+    service.setChannelCodexModel('C001', 'gpt-5.4');
+    assert.equal(service.getChannelCodexModel('C001'), 'gpt-5.4');
+
+    const reloaded = new ToolPreferenceService(storageFile);
+    assert.equal(reloaded.getChannelCodexModel('C001'), 'gpt-5.4');
+    assert.equal(reloaded.clearChannelCodexModel('C001'), true);
+    assert.equal(reloaded.getChannelCodexModel('C001'), undefined);
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('ToolPreferenceService: ツール固定解除では Codex モデル設定を保持する', () => {
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-prefs-'));
+  const storageFile = path.join(tempDir, 'channel-tools.json');
+
+  try {
+    const service = new ToolPreferenceService(storageFile);
+    service.setChannelTool('C001', 'codex');
+    service.setChannelCodexModel('C001', 'gpt-5.4');
+
+    assert.equal(service.clearChannelTool('C001'), true);
+    assert.equal(service.getChannelTool('C001')?.toolName, '');
+    assert.equal(service.getChannelCodexModel('C001'), 'gpt-5.4');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});

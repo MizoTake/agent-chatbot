@@ -102,6 +102,9 @@ npm start
   - `/agent <プロンプト>` - 現在の既定ツールでプロンプトを送信（同一チャンネルでは会話を継続）
   - `/agent --tool <name> <プロンプト>` - 1回だけ実行ツールを指定（例: `claude` / `codex` / `vibe-local`）
   - `/codex <プロンプト>` - Codex 固定でプロンプトを送信
+  - `/codex-model status` - このチャンネルの Codex モデル設定を確認
+  - `/codex-model use <model>` - このチャンネルの Codex モデルを固定（例: `gpt-5.4`）
+  - `/codex-model clear` - このチャンネルの Codex モデル固定を解除
   - `/goal <目標>` - Codex に目標達成型の作業を依頼
   - `/agent-tool status` - 現在の有効ツールを確認
   - `/agent-tool list` - 設定済みツールとCLI検出状態を確認

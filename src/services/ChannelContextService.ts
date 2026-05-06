@@ -71,6 +71,18 @@ export class ChannelContextService {
     this.toolPreferenceService.setChannelTool(channelId, toolName);
   }
 
+  setChannelCodexModel(channelId: string, model: string): void {
+    this.toolPreferenceService.setChannelCodexModel(channelId, model);
+  }
+
+  getChannelCodexModel(channelId: string): string | undefined {
+    return this.toolPreferenceService.getChannelCodexModel(channelId);
+  }
+
+  clearChannelCodexModel(channelId: string): boolean {
+    return this.toolPreferenceService.clearChannelCodexModel(channelId);
+  }
+
   clearChannelTool(channelId: string): boolean {
     return this.toolPreferenceService.clearChannelTool(channelId);
   }

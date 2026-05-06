@@ -42,6 +42,7 @@ export interface ToolOptions {
   resumeConversation?: boolean;
   sessionId?: string;
   inputImagePaths?: string[];
+  modelOverride?: string;
   /** Extra CLI arguments inserted before the tool's configured args. */
   extraArgs?: string[];
 }
@@ -366,6 +367,34 @@ export class ToolCLIClient {
       path.resolve(workingDirectory),
       ...args.slice(execIndex + 1)
     ];
+  }
+
+  private applyCodexModelOverride(tool: ToolInfo, args: string[], modelOverride?: string): string[] {
+    if (tool.name !== 'codex' || !modelOverride?.trim()) {
+      return args;
+    }
+
+    const filtered: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+      const current = args[i];
+      if ((current === '-m' || current === '--model') && i + 1 < args.length) {
+        i++;
+        continue;
+      }
+      filtered.push(current);
+    }
+
+    const execIndex = filtered.indexOf('exec');
+    if (execIndex >= 0) {
+      return [
+        ...filtered.slice(0, execIndex),
+        '-m',
+        modelOverride.trim(),
+        ...filtered.slice(execIndex)
+      ];
+    }
+
+    return ['-m', modelOverride.trim(), ...filtered];
   }
 
   private applyCodexOutputLastMessageOption(tool: ToolInfo, args: string[], outputPath?: string): string[] {
@@ -1642,6 +1671,7 @@ export class ToolCLIClient {
       resumeConversation = false,
       sessionId,
       inputImagePaths,
+      modelOverride,
       extraArgs
     } = options;
 
@@ -1664,6 +1694,7 @@ export class ToolCLIClient {
       if (extraArgs && extraArgs.length > 0) {
         args = [...extraArgs, ...args];
       }
+      args = this.applyCodexModelOverride(tool, args, modelOverride);
       args = this.applyResumeOption(tool, args, resumeConversation, sessionId);
       args = this.applyInputImageOptions(tool, args, inputImagePaths);
       args = this.applyCodexWorkingDirectoryOption(tool, args, workingDirectory);

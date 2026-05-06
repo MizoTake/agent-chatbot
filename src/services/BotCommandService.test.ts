@@ -30,6 +30,9 @@ function createService(overrides: {
   toolClient?: Record<string, unknown>;
   clearConversationState?: (channelId: string) => number;
   setChannelTool?: (channelId: string, toolName: string) => void;
+  setChannelCodexModel?: (channelId: string, model: string) => void;
+  getChannelCodexModel?: (channelId: string) => string | undefined;
+  clearChannelCodexModel?: (channelId: string) => boolean;
   buildUnknownToolResponse?: (toolName: string) => any;
   isRepositoryNameExists?: (repositoryName: string) => boolean;
   cloneRepository?: (channelId: string, repositoryUrl: string) => Promise<any>;
@@ -58,6 +61,9 @@ function createService(overrides: {
       getEffectiveToolName: () => 'claude',
       getChannelToolPreference: () => undefined,
       setChannelTool: overrides.setChannelTool || (() => {}),
+      setChannelCodexModel: overrides.setChannelCodexModel || (() => {}),
+      getChannelCodexModel: overrides.getChannelCodexModel || (() => undefined),
+      clearChannelCodexModel: overrides.clearChannelCodexModel || (() => true),
       clearChannelTool: () => true,
       clearAllChannelTools: () => 2,
       buildUnknownToolResponse: overrides.buildUnknownToolResponse || ((toolName: string) => ({ text: `unknown:${toolName}` })),
@@ -233,6 +239,53 @@ test('BotCommandService: /codex-tool は agent-tool と同じ処理でツール�
 
   assert.match(response?.text || '', /codex/);
   assert.deepEqual(updates, [{ channelId: 'C001', toolName: 'codex' }]);
+});
+
+test('BotCommandService: /codex-model use はチャンネル固定モデルを更新して会話状態をクリアする', async () => {
+  const bot = createFakeBot();
+  const updates: Array<{ channelId: string; model: string }> = [];
+  const clearedChannels: string[] = [];
+  const service = createService({
+    setChannelCodexModel: (channelId, model) => {
+      updates.push({ channelId, model });
+    },
+    clearConversationState: (channelId) => {
+      clearedChannels.push(channelId);
+      return 1;
+    }
+  });
+  service.register(bot as any);
+
+  const handler = bot.commandHandlers.get('codex-model');
+  const response = await handler?.({
+    text: 'use gpt-5.4',
+    channelId: 'C001'
+  });
+
+  assert.match(response?.text || '', /gpt-5\.4/);
+  assert.deepEqual(updates, [{ channelId: 'C001', model: 'gpt-5.4' }]);
+  assert.deepEqual(clearedChannels, ['C001']);
+});
+
+test('BotCommandService: /codex-model clear はチャンネル固定モデルを解除する', async () => {
+  const bot = createFakeBot();
+  const clearedModels: string[] = [];
+  const service = createService({
+    clearChannelCodexModel: (channelId) => {
+      clearedModels.push(channelId);
+      return true;
+    }
+  });
+  service.register(bot as any);
+
+  const handler = bot.commandHandlers.get('codex-model');
+  const response = await handler?.({
+    text: 'clear',
+    channelId: 'C001'
+  });
+
+  assert.match(response?.text || '', /解除/);
+  assert.deepEqual(clearedModels, ['C001']);
 });
 
 test('BotCommandService: /agent-update はアプリ更新サービスへ委譲する', async () => {

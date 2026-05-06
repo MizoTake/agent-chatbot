@@ -424,7 +424,8 @@ test('PromptExecutionService.executePromptRequest: 画像のみの入力でも C
         localPath: tempDir
       }
     }),
-    getEffectiveToolName: () => 'codex'
+    getEffectiveToolName: () => 'codex',
+    getChannelCodexModel: () => undefined
   };
   const service = new PromptExecutionService(
     toolRuntimeService as any,
@@ -459,6 +460,66 @@ test('PromptExecutionService.executePromptRequest: 画像のみの入力でも C
     assert.match(capturedCalls[0].prompt, new RegExp(imagePath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.deepEqual(capturedCalls[0].options.inputImagePaths, [imagePath]);
     assert.equal(response?.text, '画像を確認しました。');
+  } finally {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('PromptExecutionService.executePromptRequest: チャンネル固定の Codex モデルを実行オプションへ渡す', async () => {
+  const capturedCalls: Array<{ prompt: string; options: Record<string, unknown> }> = [];
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-execution-codex-model-'));
+
+  const toolClient = {
+    hasTool: () => true,
+    sendPrompt: async (prompt: string, options: Record<string, unknown>) => {
+      capturedCalls.push({ prompt, options });
+      return { response: 'ok' };
+    }
+  };
+  const toolRuntimeService = {
+    getToolClient: () => toolClient,
+    ensureToolReady: async () => undefined,
+    isSkipPermissionsEnabled: () => false
+  };
+  const conversationSessionService = {
+    shouldResumeConversation: () => false,
+    getSessionId: () => undefined,
+    markConversationActive: () => {},
+    storeSessionId: () => {},
+    clearConversationState: () => 0
+  };
+  const channelContextService = {
+    resolveChannelRepository: async () => ({
+      repository: {
+        localPath: tempDir
+      }
+    }),
+    getEffectiveToolName: () => 'codex',
+    getChannelCodexModel: () => 'gpt-5.4'
+  };
+  const service = new PromptExecutionService(
+    toolRuntimeService as any,
+    conversationSessionService as any,
+    channelContextService as any
+  );
+
+  try {
+    const response = await service.executePromptRequest(
+      {
+        text: 'fix it',
+        channelId: 'C001',
+        userId: 'U001',
+        isDirectMessage: true,
+        isMention: false,
+        isCommand: false
+      },
+      false,
+      async () => {}
+    );
+
+    assert.equal(response?.text, 'ok');
+    assert.equal(capturedCalls.length, 1);
+    assert.equal(capturedCalls[0].options.modelOverride, 'gpt-5.4');
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
   }

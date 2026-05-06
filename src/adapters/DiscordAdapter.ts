@@ -564,6 +564,16 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
+        name: 'codex-model',
+        description: 'Set or show the Codex model for this channel',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: 'status / use <model> / clear',
+          required: false,
+        }],
+      },
+      {
         name: 'goal',
         description: 'Ask Codex to complete a goal',
         options: [{

@@ -81,6 +81,7 @@ export interface PromptExecutionContext {
   toolName: string;
   workingDirectory?: string;
   inputImagePaths?: string[];
+  modelOverride?: string;
 }
 
 interface LocalTargetLocation {
@@ -157,6 +158,9 @@ export class PromptExecutionService {
       }
 
       const toolName = this.channelContextService.getEffectiveToolName(message.channelId, toolClient, parsed.toolOverride);
+      const modelOverride = toolName === 'codex'
+        ? this.channelContextService.getChannelCodexModel(message.channelId)
+        : undefined;
       if (resolvedRepository.restored) {
         const clearedConversationCount = this.conversationSessionService.clearConversationState(message.channelId);
         logger.info('Cleared conversation state after repository restore', {
@@ -165,7 +169,7 @@ export class PromptExecutionService {
         });
       }
 
-      const runtimeError = await this.toolRuntimeService.ensureToolReady(toolName);
+      const runtimeError = await this.toolRuntimeService.ensureToolReady(toolName, modelOverride);
       if (runtimeError) {
         return { text: runtimeError };
       }
@@ -174,7 +178,8 @@ export class PromptExecutionService {
         channelId: message.channelId,
         toolName,
         workingDirectory: resolvedRepository.repository.localPath,
-        inputImagePaths: this.collectInputImagePaths(message.attachments)
+        inputImagePaths: this.collectInputImagePaths(message.attachments),
+        modelOverride
       };
       const toolPrompt = this.buildPromptWithInputImages(parsed.prompt, message.attachments);
 
@@ -190,7 +195,8 @@ export class PromptExecutionService {
         toolName,
         resumeConversation: this.conversationSessionService.shouldResumeConversation(message.channelId),
         sessionId: this.conversationSessionService.getSessionId(message.channelId, toolName),
-        inputImagePaths: context.inputImagePaths
+        inputImagePaths: context.inputImagePaths,
+        modelOverride: context.modelOverride
       });
 
       if (!result.error || result.timedOut) {
@@ -278,7 +284,8 @@ export class PromptExecutionService {
             skipPermissions: this.toolRuntimeService.isSkipPermissionsEnabled(),
             toolName: context.toolName,
             resumeConversation: true,
-            sessionId: result.sessionId
+            sessionId: result.sessionId,
+            modelOverride: context.modelOverride
           }
         );
 
@@ -303,7 +310,8 @@ export class PromptExecutionService {
             skipPermissions: this.toolRuntimeService.isSkipPermissionsEnabled(),
             toolName: context.toolName,
             resumeConversation: true,
-            sessionId: result.sessionId
+            sessionId: result.sessionId,
+            modelOverride: context.modelOverride
           }
         );
 
@@ -330,7 +338,8 @@ export class PromptExecutionService {
             skipPermissions: this.toolRuntimeService.isSkipPermissionsEnabled(),
             toolName: context.toolName,
             resumeConversation: true,
-            sessionId: result.sessionId
+            sessionId: result.sessionId,
+            modelOverride: context.modelOverride
           }
         );
 
@@ -367,7 +376,8 @@ export class PromptExecutionService {
         skipPermissions: this.toolRuntimeService.isSkipPermissionsEnabled(),
         toolName: context.toolName,
         resumeConversation: false,
-        inputImagePaths: context.inputImagePaths
+        inputImagePaths: context.inputImagePaths,
+        modelOverride: context.modelOverride
       }
     );
 
