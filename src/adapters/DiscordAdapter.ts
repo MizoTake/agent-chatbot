@@ -554,11 +554,49 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
+        name: 'codex',
+        description: 'Run a prompt with Codex',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: 'Your message to Codex',
+          required: true,
+        }],
+      },
+      {
+        name: 'goal',
+        description: 'Ask Codex to complete a goal',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: 'Goal description',
+          required: true,
+        }],
+      },
+      {
+        name: 'codex-goal',
+        description: 'Ask Codex to complete a goal',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: 'Goal description',
+          required: true,
+        }],
+      },
+      {
         name: 'agent-help',
         description: `Show ${normalizedAgentName} help`,
       },
       {
+        name: 'codex-help',
+        description: 'Show Codex command help',
+      },
+      {
         name: 'agent-status',
+        description: 'Show tool and repository status',
+      },
+      {
+        name: 'codex-status',
         description: 'Show tool and repository status',
       },
       {
@@ -566,7 +604,21 @@ export class DiscordAdapter implements BotAdapter {
         description: 'Clear conversation context',
       },
       {
+        name: 'codex-clear',
+        description: 'Clear conversation context',
+      },
+      {
         name: 'agent-repo',
+        description: 'Manage repository for this channel',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: '<url> / status / create <name> / tool <name> / delete / reset',
+          required: true,
+        }],
+      },
+      {
+        name: 'codex-repo',
         description: 'Manage repository for this channel',
         options: [{
           name: 'prompt',
@@ -586,6 +638,16 @@ export class DiscordAdapter implements BotAdapter {
         }],
       },
       {
+        name: 'codex-skip-permissions',
+        description: 'Toggle --dangerously-skip-permissions flag',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: 'on|enable / off|disable / empty to toggle',
+          required: false,
+        }],
+      },
+      {
         name: 'agent-tool',
         description: `Tool command: list / status / use <name> / clear / reset`,
         options: [{
@@ -594,6 +656,44 @@ export class DiscordAdapter implements BotAdapter {
           description: 'list / status / use <name> / clear / reset',
           required: false,
         }],
+      },
+      {
+        name: 'codex-tool',
+        description: 'Tool command: list / status / use <name> / clear / reset',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: 'list / status / use <name> / clear / reset',
+          required: false,
+        }],
+      },
+      {
+        name: 'agent-update',
+        description: 'Pull latest app code from GitHub and restart',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: 'pull / status / restart',
+          required: false,
+        }],
+      },
+      {
+        name: 'codex-update',
+        description: 'Pull latest app code from GitHub and restart',
+        options: [{
+          name: 'prompt',
+          type: 3,
+          description: 'pull / status / restart',
+          required: false,
+        }],
+      },
+      {
+        name: 'agent-restart',
+        description: 'Restart the app process',
+      },
+      {
+        name: 'codex-restart',
+        description: 'Restart the app process',
       },
       {
         name: 'takt-run',

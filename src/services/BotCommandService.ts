@@ -1,6 +1,7 @@
-import { BotAdapter, BotMessage, BotResponse } from '../interfaces/BotInterface';
 import { ConfigValidator } from '../config/validator';
+import { BotAdapter, BotMessage, BotResponse } from '../interfaces/BotInterface';
 import { createLogger } from '../utils/logger';
+import { ApplicationUpdateService, ApplicationUpdateResult, RestartResult } from './ApplicationUpdateService';
 import { ChannelContextService } from './ChannelContextService';
 import { ConversationSessionService } from './ConversationSessionService';
 import { PromptExecutionService } from './PromptExecutionService';
@@ -15,7 +16,8 @@ export class BotCommandService {
     private readonly workflowRunnerService: WorkflowRunnerService,
     private readonly toolRuntimeService: ToolRuntimeService,
     private readonly channelContextService: ChannelContextService,
-    private readonly conversationSessionService: ConversationSessionService
+    private readonly conversationSessionService: ConversationSessionService,
+    private readonly applicationUpdateService: ApplicationUpdateService
   ) {}
 
   register(bot: BotAdapter): void {
@@ -54,7 +56,35 @@ export class BotCommandService {
       );
     });
 
-    registerCommandAliases(['agent-tool', 'claude-tool'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommandAliases(['codex'], async (message: BotMessage): Promise<BotResponse | null> => {
+      if (!message.text && !message.attachments?.length) {
+        return {
+          text: '📝 プロンプトを指定してください。使用例: `/codex <プロンプト>`'
+        };
+      }
+
+      return this.promptExecutionService.executePromptRequest(
+        this.buildToolOverrideMessage(message, 'codex', message.text),
+        true,
+        (response) => bot.sendMessage(message.channelId, response)
+      );
+    });
+
+    registerCommandAliases(['goal', 'codex-goal'], async (message: BotMessage): Promise<BotResponse | null> => {
+      if (!message.text) {
+        return {
+          text: '📝 目標を指定してください。使用例: `/goal ログイン失敗を直す`'
+        };
+      }
+
+      return this.promptExecutionService.executePromptRequest(
+        this.buildToolOverrideMessage(message, 'codex', this.buildGoalPrompt(message.text)),
+        true,
+        (response) => bot.sendMessage(message.channelId, response)
+      );
+    });
+
+    registerCommandAliases(['agent-tool', 'claude-tool', 'codex-tool'], async (message: BotMessage): Promise<BotResponse | null> => {
       return this.handleToolCommand(message);
     });
 
@@ -66,7 +96,7 @@ export class BotCommandService {
       return this.workflowRunnerService.runOrcha(message);
     });
 
-    registerCommandAliases(['agent-help', 'claude-help'], async (): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-help', 'claude-help', 'codex-help'], async (): Promise<BotResponse | null> => {
       return {
         text: 'Agent Chatbot ヘルプ',
         blocks: [
@@ -77,6 +107,8 @@ export class BotCommandService {
               text: '*利用可能なコマンド:*\n\n' +
                 '• `/agent <プロンプト>` - 現在の既定ツールで実行\n' +
                 '• `/agent --tool <name> <プロンプト>` - 1回だけツールを切り替えて実行\n' +
+                '• `/codex <プロンプト>` - Codex 固定で実行\n' +
+                '• `/goal <目標>` - Codex に目標達成型の作業を依頼\n' +
                 '• `/agent-tool status` - 現在の有効ツールを表示\n' +
                 '• `/agent-tool list` - 設定済みツール一覧とCLI検出状態を表示\n' +
                 '• `/agent-tool use <name>` - このチャンネルの既定ツールを設定\n' +
@@ -92,6 +124,9 @@ export class BotCommandService {
                 '• `/agent-repo reset` - すべてのリポジトリリンクをリセット\n' +
                 '• `/agent-status` - ツールCLIとリポジトリの状態を確認\n' +
                 '• `/agent-clear` - 会話継続状態をクリア\n' +
+                '• `/agent-update` - GitHub からアプリ本体を pull/build して再起動を予約\n' +
+                '• `/agent-update status` - アプリ本体の GitHub 更新状況を確認\n' +
+                '• `/agent-restart` - アプリ本体の再起動を予約\n' +
                 '• `/agent-help` - このヘルプを表示'
             }
           }
@@ -99,11 +134,11 @@ export class BotCommandService {
       };
     });
 
-    registerCommandAliases(['agent-status', 'claude-status'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-status', 'claude-status', 'codex-status'], async (message: BotMessage): Promise<BotResponse | null> => {
       return this.handleStatusCommand(message);
     });
 
-    registerCommandAliases(['agent-clear', 'claude-clear'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-clear', 'claude-clear', 'codex-clear'], async (message: BotMessage): Promise<BotResponse | null> => {
       const clearedConversationCount = this.conversationSessionService.clearConversationState(message.channelId);
       return {
         text: '🧹 会話コンテキストをクリアしました',
@@ -119,13 +154,103 @@ export class BotCommandService {
       };
     });
 
-    registerCommandAliases(['agent-skip-permissions', 'claude-skip-permissions'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-skip-permissions', 'claude-skip-permissions', 'codex-skip-permissions'], async (message: BotMessage): Promise<BotResponse | null> => {
       return this.handleSkipPermissionsCommand(message);
     });
 
-    registerCommandAliases(['agent-repo', 'claude-repo'], async (message: BotMessage): Promise<BotResponse | null> => {
+    registerCommandAliases(['agent-repo', 'claude-repo', 'codex-repo'], async (message: BotMessage): Promise<BotResponse | null> => {
       return this.handleRepositoryCommand(message);
     });
+
+    registerCommandAliases(['agent-update', 'codex-update'], async (message: BotMessage): Promise<BotResponse | null> => {
+      return this.handleUpdateCommand(message);
+    });
+
+    registerCommandAliases(['agent-restart', 'codex-restart'], async (): Promise<BotResponse | null> => {
+      return this.handleRestartCommand();
+    });
+  }
+
+  private buildToolOverrideMessage(message: BotMessage, toolName: string, prompt: string): BotMessage {
+    const trimmedPrompt = prompt.trim();
+    return {
+      ...message,
+      text: trimmedPrompt ? `--tool ${toolName} ${trimmedPrompt}` : `--tool ${toolName}`
+    };
+  }
+
+  private buildGoalPrompt(goal: string): string {
+    return [
+      '以下の目標を達成してください。Codex でリポジトリを確認し、必要な最小差分を実装し、実行可能な検証まで行ってください。',
+      '',
+      '進め方:',
+      '1. 現状確認を行い、前提や不明点は仮定として明示する',
+      '2. 目標達成に必要な最小の変更を行う',
+      '3. 実行可能なテストまたは検証コマンドを実行する',
+      '4. 変更内容と検証結果を日本語で簡潔に報告する',
+      '',
+      `目標:\n${goal.trim()}`
+    ].join('\n');
+  }
+
+  private async handleUpdateCommand(message: BotMessage): Promise<BotResponse | null> {
+    const action = message.text?.trim().toLowerCase() || 'pull';
+    if (action === 'status') {
+      return this.buildApplicationUpdateResponse('アプリ更新ステータス', await this.applicationUpdateService.getUpdateStatus());
+    }
+
+    if (action === 'pull' || action === 'update' || action === 'latest') {
+      return this.buildApplicationUpdateResponse('アプリ更新', await this.applicationUpdateService.updateApplication(action));
+    }
+
+    if (action === 'restart') {
+      return this.handleRestartCommand();
+    }
+
+    return {
+      text: '❌ 無効なサブコマンドです。\n使用方法: `/agent-update` `/agent-update status` `/agent-update restart`'
+    };
+  }
+
+  private async handleRestartCommand(): Promise<BotResponse | null> {
+    const result = this.applicationUpdateService.restartApplication();
+    return this.buildRestartResponse(result);
+  }
+
+  private buildApplicationUpdateResponse(title: string, result: ApplicationUpdateResult): BotResponse {
+    const status = result.success ? '✅' : '❌';
+    const detailText = result.details?.length ? `\n\n${result.details.map(detail => `• ${detail}`).join('\n')}` : '';
+    const text = `${status} ${result.summary}${detailText}`;
+    return {
+      text,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*${title}*\n\n${text}`
+          }
+        }
+      ]
+    };
+  }
+
+  private buildRestartResponse(result: RestartResult): BotResponse {
+    const text = result.success
+      ? '✅ アプリケーションの再起動を予約しました。数秒後に現在のプロセスを停止します。'
+      : `❌ アプリケーションの再起動予約に失敗しました: ${result.error || '不明なエラー'}`;
+    return {
+      text,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text
+          }
+        }
+      ]
+    };
   }
 
   private async handleToolCommand(message: BotMessage): Promise<BotResponse | null> {

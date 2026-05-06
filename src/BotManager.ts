@@ -1,11 +1,12 @@
 import { DiscordAdapter } from './adapters/DiscordAdapter';
-import { createLogger } from './utils/logger';
+import { ApplicationUpdateService } from './services/ApplicationUpdateService';
 import { BotCommandService } from './services/BotCommandService';
 import { ChannelContextService } from './services/ChannelContextService';
 import { ConversationSessionService } from './services/ConversationSessionService';
 import { PromptExecutionService } from './services/PromptExecutionService';
 import { ToolRuntimeService } from './services/ToolRuntimeService';
 import { WorkflowRunnerService } from './services/WorkflowRunnerService';
+import { createLogger } from './utils/logger';
 
 const logger = createLogger('BotManager');
 
@@ -28,13 +29,15 @@ export class BotManager {
       this.toolRuntimeService,
       channelContextService
     );
+    const applicationUpdateService = new ApplicationUpdateService();
 
     this.commandService = new BotCommandService(
       promptExecutionService,
       workflowRunnerService,
       this.toolRuntimeService,
       channelContextService,
-      conversationSessionService
+      conversationSessionService,
+      applicationUpdateService
     );
   }
 

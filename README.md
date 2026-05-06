@@ -100,6 +100,8 @@ npm start
 - **スラッシュコマンド**:
   - `/agent <プロンプト>` - 現在の既定ツールでプロンプトを送信（同一チャンネルでは会話を継続）
   - `/agent --tool <name> <プロンプト>` - 1回だけ実行ツールを指定（例: `claude` / `codex` / `vibe-local`）
+  - `/codex <プロンプト>` - Codex 固定でプロンプトを送信
+  - `/goal <目標>` - Codex に目標達成型の作業を依頼
   - `/agent-tool status` - 現在の有効ツールを確認
   - `/agent-tool list` - 設定済みツールとCLI検出状態を確認
   - `/agent-tool use <name>` - このチャンネルの既定ツールを変更
@@ -112,10 +114,13 @@ npm start
   - `/agent-help` - コマンドのヘルプを表示
   - `/agent-status` - 現在の有効ツールとリポジトリの状態を確認
   - `/agent-clear` - 会話継続状態をクリアして新規セッションに戻す
+  - `/agent-update` / `/codex-update` - GitHub からアプリ本体を `git pull --ff-only` し、必要に応じて `npm install`、`npm run build` 後に再起動を予約
+  - `/agent-update status` / `/codex-update status` - アプリ本体の GitHub 更新状況を確認
+  - `/agent-restart` / `/codex-restart` - アプリ本体の再起動を予約
   - `/agent-skip-permissions` - --dangerously-skip-permissionsフラグの切り替え
   - `/agent-skip-permissions on/off` - 権限スキップモードの有効化/無効化
     - ⚠️ **注意**: root権限で実行時は、`CLAUDE_FORCE_ALLOW_ROOT=true`を設定するか、`CLAUDE_RUN_AS_USER`で別ユーザーを指定してください（この設定は `supportsSkipPermissions=true` のツールに適用）
-  - 互換エイリアスとして `/claude*` 系コマンドも引き続き利用可能
+  - 互換エイリアスとして `/claude*` 系コマンド、Codex向けエイリアスとして `/codex-*` 系コマンドも利用可能
 
 利用ツールを切り替える例:
 ```text
@@ -147,6 +152,10 @@ npm start
 - `DEBUG`: デバッグ出力を有効化（true/false）
 - `AGENT_CHATBOT_TOOLS_DEFAULTTOOL`: 既定ツール名（例: `claude`, `codex`, `vibe-local`）
 - `AGENT_CHATBOT_APP_NAME`: Discord上の表示名を固定したい場合に指定（未指定時は既定ツール名を使用）
+- `AGENT_CHATBOT_RESTART_MODE`: `exit` を指定すると自前で `npm start` せず、プロセスマネージャの再起動に任せる
+- `AGENT_CHATBOT_RESTART_COMMAND`: 自前再起動時に実行するコマンド（デフォルト: `npm start`）
+- `AGENT_CHATBOT_RESTART_SIGNAL_DELAY_MS`: 再起動予約後、現在プロセスへ `SIGTERM` を送るまでの待機時間（デフォルト: 5000）
+- `AGENT_CHATBOT_RESTART_START_DELAY_SECONDS`: 自前再起動コマンドを開始するまでの待機秒数（デフォルト: 8）
 
 **デフォルト実行オプション:**
 - `claude`: `--dangerously-skip-permissions --print {prompt}`

@@ -33,6 +33,8 @@ function createService(overrides: {
   buildUnknownToolResponse?: (toolName: string) => any;
   isRepositoryNameExists?: (repositoryName: string) => boolean;
   cloneRepository?: (channelId: string, repositoryUrl: string) => Promise<any>;
+  updateApplication?: (...args: any[]) => Promise<any>;
+  restartApplication?: (...args: any[]) => any;
 } = {}): BotCommandService {
   const toolClient = {
     listTools: () => [{ name: 'claude', command: 'claude' }, { name: 'codex', command: 'codex' }],
@@ -74,6 +76,11 @@ function createService(overrides: {
     } as any,
     {
       clearConversationState: overrides.clearConversationState || (() => 1)
+    } as any,
+    {
+      updateApplication: overrides.updateApplication || (async () => ({ success: true, pulled: true, restartScheduled: true, summary: 'updated' })),
+      restartApplication: overrides.restartApplication || (() => ({ success: true })),
+      getUpdateStatus: async () => ({ success: true, summary: 'status' })
     } as any
   );
 }
@@ -147,6 +154,51 @@ test('BotCommandService: /agent は showToolPrefix=true で委譲する', async 
   assert.deepEqual(calls, [true]);
 });
 
+test('BotCommandService: /codex は codex ツール指定として委譲する', async () => {
+  const bot = createFakeBot();
+  const calls: Array<{ text: string; showToolPrefix: boolean }> = [];
+  const service = createService({
+    executePromptRequest: async (message, showToolPrefix) => {
+      calls.push({ text: message.text, showToolPrefix });
+      return { text: 'ok' };
+    }
+  });
+  service.register(bot as any);
+
+  const handler = bot.commandHandlers.get('codex');
+  const response = await handler?.({
+    text: 'fix it',
+    channelId: 'C001'
+  });
+
+  assert.equal(response?.text, 'ok');
+  assert.deepEqual(calls, [{ text: '--tool codex fix it', showToolPrefix: true }]);
+});
+
+test('BotCommandService: /goal は codex 用の goal プロンプトとして委譲する', async () => {
+  const bot = createFakeBot();
+  const calls: Array<{ text: string; showToolPrefix: boolean }> = [];
+  const service = createService({
+    executePromptRequest: async (message, showToolPrefix) => {
+      calls.push({ text: message.text, showToolPrefix });
+      return { text: 'ok' };
+    }
+  });
+  service.register(bot as any);
+
+  const handler = bot.commandHandlers.get('goal');
+  const response = await handler?.({
+    text: 'ログイン失敗を直す',
+    channelId: 'C001'
+  });
+
+  assert.equal(response?.text, 'ok');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].showToolPrefix, true);
+  assert.match(calls[0].text, /^--tool codex /);
+  assert.match(calls[0].text, /目標:\nログイン失敗を直す/);
+});
+
 test('BotCommandService: /agent-tool use はチャンネル固定ツールを更新する', async () => {
   const bot = createFakeBot();
   const updates: Array<{ channelId: string; toolName: string }> = [];
@@ -165,6 +217,73 @@ test('BotCommandService: /agent-tool use はチャンネル固定ツールを更
 
   assert.match(response?.text || '', /codex/);
   assert.deepEqual(updates, [{ channelId: 'C001', toolName: 'codex' }]);
+});
+
+test('BotCommandService: /codex-tool は agent-tool と同じ処理でツール設定を更新する', async () => {
+  const bot = createFakeBot();
+  const updates: Array<{ channelId: string; toolName: string }> = [];
+  const service = createService({
+    setChannelTool: (channelId, toolName) => {
+      updates.push({ channelId, toolName });
+    }
+  });
+  service.register(bot as any);
+
+  const handler = bot.commandHandlers.get('codex-tool');
+  const response = await handler?.({
+    text: 'use codex',
+    channelId: 'C001'
+  });
+
+  assert.match(response?.text || '', /codex/);
+  assert.deepEqual(updates, [{ channelId: 'C001', toolName: 'codex' }]);
+});
+
+test('BotCommandService: /agent-update はアプリ更新サービスへ委譲する', async () => {
+  const bot = createFakeBot();
+  const calls: string[] = [];
+  const service = createService({
+    updateApplication: async (action) => {
+      calls.push(action);
+      return {
+        success: true,
+        pulled: true,
+        restartScheduled: true,
+        summary: '更新して再起動を予約しました'
+      };
+    }
+  });
+  service.register(bot as any);
+
+  const handler = bot.commandHandlers.get('agent-update');
+  const response = await handler?.({
+    text: '',
+    channelId: 'C001'
+  });
+
+  assert.match(response?.text || '', /更新して再起動を予約しました/);
+  assert.deepEqual(calls, ['pull']);
+});
+
+test('BotCommandService: /codex-restart は再起動サービスへ委譲する', async () => {
+  const bot = createFakeBot();
+  let called = false;
+  const service = createService({
+    restartApplication: () => {
+      called = true;
+      return { success: true };
+    }
+  });
+  service.register(bot as any);
+
+  const handler = bot.commandHandlers.get('codex-restart');
+  const response = await handler?.({
+    text: '',
+    channelId: 'C001'
+  });
+
+  assert.match(response?.text || '', /再起動/);
+  assert.equal(called, true);
 });
 
 test('BotCommandService: /agent-tool use で未知ツールなら unknown response を返す', async () => {
