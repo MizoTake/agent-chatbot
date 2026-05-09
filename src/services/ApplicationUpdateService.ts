@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn, type SpawnOptions } from 'child_process';
 import * as path from 'path';
 
 import { createLogger } from '../utils/logger';
@@ -31,11 +31,15 @@ export interface ApplicationUpdateResult {
 
 export type CommandRunner = (command: string, args: string[], options: CommandRunnerOptions) => Promise<CommandResult>;
 export type RestartScheduler = () => RestartResult;
+export type RestartProcessSpawner = (command: string, args: string[], options: SpawnOptions) => { unref(): void };
+export type DelayScheduler = (callback: () => void, delayMs: number) => unknown;
 
 export interface ApplicationUpdateServiceOptions {
   appDir?: string;
   runner?: CommandRunner;
   restartScheduler?: RestartScheduler;
+  restartProcessSpawner?: RestartProcessSpawner;
+  delayScheduler?: DelayScheduler;
 }
 
 interface RepositoryCheck {
@@ -55,11 +59,15 @@ export class ApplicationUpdateService {
   private readonly appDir: string;
   private readonly runner: CommandRunner;
   private readonly restartScheduler: RestartScheduler;
+  private readonly restartProcessSpawner: RestartProcessSpawner;
+  private readonly delayScheduler: DelayScheduler;
 
   constructor(options: ApplicationUpdateServiceOptions = {}) {
     this.appDir = path.resolve(options.appDir || process.cwd());
     this.runner = options.runner || this.runCommand.bind(this);
     this.restartScheduler = options.restartScheduler || this.scheduleDefaultRestart.bind(this);
+    this.restartProcessSpawner = options.restartProcessSpawner || ((command, args, spawnOptions) => spawn(command, args, spawnOptions));
+    this.delayScheduler = options.delayScheduler || setTimeout;
   }
 
   async getUpdateStatus(): Promise<ApplicationUpdateResult> {
@@ -385,14 +393,14 @@ export class ApplicationUpdateService {
       const signalDelayMs = this.parsePositiveInt(process.env.AGENT_CHATBOT_RESTART_SIGNAL_DELAY_MS, 5000);
 
       if (mode === 'exit') {
-        setTimeout(() => this.signalCurrentProcess(), signalDelayMs);
+        this.delayScheduler(() => this.signalCurrentProcess(), signalDelayMs);
         return { success: true };
       }
 
       const restartCommand = process.env.AGENT_CHATBOT_RESTART_COMMAND?.trim() || 'npm start';
       const startDelaySeconds = this.parsePositiveInt(process.env.AGENT_CHATBOT_RESTART_START_DELAY_SECONDS, 8);
       this.spawnDelayedRestart(restartCommand, startDelaySeconds);
-      setTimeout(() => this.signalCurrentProcess(), signalDelayMs);
+      this.delayScheduler(() => this.signalCurrentProcess(), signalDelayMs);
       return { success: true };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -405,22 +413,30 @@ export class ApplicationUpdateService {
   }
 
   private spawnDelayedRestart(restartCommand: string, startDelaySeconds: number): void {
-    const child = process.platform === 'win32'
-      ? spawn(process.env.COMSPEC || 'cmd.exe', ['/d', '/s', '/c', `timeout /t ${startDelaySeconds} /nobreak >nul && ${restartCommand}`], {
-        cwd: this.appDir,
-        detached: true,
-        env: process.env,
-        stdio: 'ignore',
-        windowsHide: true
-      })
-      : spawn('sh', ['-c', `sleep ${startDelaySeconds}; exec ${restartCommand}`], {
-        cwd: this.appDir,
-        detached: true,
-        env: process.env,
-        stdio: 'ignore'
-      });
+    const child = this.restartProcessSpawner(process.execPath, ['-e', this.createDelayedRestartScript(), String(startDelaySeconds), restartCommand, this.appDir], {
+      cwd: this.appDir,
+      detached: true,
+      env: process.env,
+      stdio: 'ignore',
+      windowsHide: true
+    });
 
     child.unref();
+  }
+
+  private createDelayedRestartScript(): string {
+    return [
+      "const { spawn } = require('child_process');",
+      'const delaySeconds = Number(process.argv[1]);',
+      'const restartCommand = process.argv[2];',
+      'const cwd = process.argv[3];',
+      'const delayMs = Number.isFinite(delaySeconds) && delaySeconds > 0 ? Math.floor(delaySeconds * 1000) : 8000;',
+      'setTimeout(() => {',
+      "  const child = spawn(restartCommand, { cwd, detached: true, env: process.env, shell: true, stdio: 'ignore', windowsHide: true });",
+      "  child.on('error', () => undefined);",
+      '  child.unref();',
+      '}, delayMs);'
+    ].join('\n');
   }
 
   private signalCurrentProcess(): void {

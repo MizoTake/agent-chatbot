@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { SpawnOptions } from 'child_process';
+import * as path from 'path';
 
 import { ApplicationUpdateService, CommandResult } from './ApplicationUpdateService';
 
@@ -33,6 +35,15 @@ function git(args: string[], stdout: string = '', exitCode: number = 0, stderr: 
 
 function npm(args: string[], stdout: string = '', exitCode: number = 0, stderr: string = ''): ExpectedCommand {
   return { command: 'npm', args, stdout, exitCode, stderr };
+}
+
+function restoreEnv(name: string, value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env[name];
+    return;
+  }
+
+  process.env[name] = value;
 }
 
 test('ApplicationUpdateService: 作業ツリーが dirty なら pull せず失敗する', async () => {
@@ -186,4 +197,58 @@ test('ApplicationUpdateService: restartApplication は restartScheduler の結�
 
   assert.deepEqual(result, { success: true });
   assert.equal(restartCalled, true);
+});
+
+test('ApplicationUpdateService: restartApplication は timeout に依存しない Node ヘルパーで再起動を予約する', () => {
+  const originalMode = process.env.AGENT_CHATBOT_RESTART_MODE;
+  const originalCommand = process.env.AGENT_CHATBOT_RESTART_COMMAND;
+  const originalStartDelay = process.env.AGENT_CHATBOT_RESTART_START_DELAY_SECONDS;
+  const originalSignalDelay = process.env.AGENT_CHATBOT_RESTART_SIGNAL_DELAY_MS;
+  const spawns: Array<{ command: string; args: string[]; options: SpawnOptions }> = [];
+  const signalDelays: number[] = [];
+  let unrefCalled = false;
+
+  try {
+    delete process.env.AGENT_CHATBOT_RESTART_MODE;
+    process.env.AGENT_CHATBOT_RESTART_COMMAND = 'npm start';
+    process.env.AGENT_CHATBOT_RESTART_START_DELAY_SECONDS = '3';
+    process.env.AGENT_CHATBOT_RESTART_SIGNAL_DELAY_MS = '7';
+
+    const service = new ApplicationUpdateService({
+      appDir: 'D:/Project/agent-chatbot',
+      runner: async () => ({ exitCode: 0, stdout: '', stderr: '' }),
+      restartProcessSpawner: (command, args, options) => {
+        spawns.push({ command, args, options });
+        return {
+          unref: () => {
+            unrefCalled = true;
+          }
+        };
+      },
+      delayScheduler: (_callback, delayMs) => {
+        signalDelays.push(delayMs);
+        return 0;
+      }
+    });
+
+    const result = service.restartApplication();
+
+    assert.deepEqual(result, { success: true });
+    assert.equal(spawns.length, 1);
+    assert.equal(spawns[0].command, process.execPath);
+    assert.equal(spawns[0].args[0], '-e');
+    assert.equal(spawns[0].args[1].includes('timeout'), false);
+    assert.equal(spawns[0].args[2], '3');
+    assert.equal(spawns[0].args[3], 'npm start');
+    assert.equal(spawns[0].args[4], path.resolve('D:/Project/agent-chatbot'));
+    assert.equal(spawns[0].options.detached, true);
+    assert.equal(spawns[0].options.stdio, 'ignore');
+    assert.deepEqual(signalDelays, [7]);
+    assert.equal(unrefCalled, true);
+  } finally {
+    restoreEnv('AGENT_CHATBOT_RESTART_MODE', originalMode);
+    restoreEnv('AGENT_CHATBOT_RESTART_COMMAND', originalCommand);
+    restoreEnv('AGENT_CHATBOT_RESTART_START_DELAY_SECONDS', originalStartDelay);
+    restoreEnv('AGENT_CHATBOT_RESTART_SIGNAL_DELAY_MS', originalSignalDelay);
+  }
 });
