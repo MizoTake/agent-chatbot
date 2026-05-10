@@ -16,12 +16,13 @@ permissions:
 
 jobs:
   check:
-    name: Check (Node.js ${{ matrix.node-version }})
-    runs-on: ubuntu-latest
+    name: Check (${{ matrix.os }}, Node.js ${{ matrix.node-version }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         node-version: [18, 22]
 
     steps:
@@ -36,6 +37,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Run dependency audit
+        run: npm audit --audit-level=moderate
 
       - name: Run typecheck
         run: npm run typecheck
